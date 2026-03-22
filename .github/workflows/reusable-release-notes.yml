@@ -256,18 +256,36 @@ jobs:
             }
 
             const range = releaseBoundary ? `${releaseBoundary}..origin/${baseBranch}` : `origin/${baseBranch}`;
-            let mergeCommits = [];
+            let prCandidateCommits = [];
             try {
-              mergeCommits = command(`git log --merges --pretty=%H ${range}`)
-                .split("\n")
+              const commitRecords = command(`git log --pretty=%H%x1f%P%x1f%B%x1e ${range}`)
+                .split("\x1e")
+                .map((record) => record.trim())
                 .filter(Boolean)
+                .map((record) => {
+                  const [sha = "", parents = "", message = ""] = record.split("\x1f");
+                  return {
+                    sha: sha.trim(),
+                    parentCount: parents.trim() ? parents.trim().split(/\s+/).length : 0,
+                    message,
+                  };
+                })
                 .reverse();
+              prCandidateCommits = commitRecords
+                .filter((record) => {
+                  if (record.parentCount > 1) {
+                    return true;
+                  }
+                  return /^merge pull request #\d+\b/im.test(record.message || "");
+                })
+                .map((record) => record.sha)
+                .filter(Boolean);
             } catch (error) {
-              mergeCommits = [];
+              prCandidateCommits = [];
             }
 
             const prMap = new Map();
-            for (const sha of mergeCommits) {
+            for (const sha of prCandidateCommits) {
               const response = await github.rest.repos.listPullRequestsAssociatedWithCommit({
                 owner,
                 repo,
