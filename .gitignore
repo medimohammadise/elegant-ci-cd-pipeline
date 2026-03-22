@@ -4,6 +4,14 @@ Thumbs.db
 *.swp
 .vscode/
 .idea/
+.codex/
+.gradle/
+build/
+out/
+target/
+*.class
+*.jar
+*.log
 .codex/*
 !.codex/prompts/
 !.codex/prompts/*.md
