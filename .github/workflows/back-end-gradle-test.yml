@@ -1,0 +1,164 @@
+name: Backend Gradle Tests
+
+on:
+  workflow_call:
+    inputs:
+      gradle-args:
+        description: Additional Gradle arguments appended to each test command
+        required: false
+        type: string
+        default: ""
+      unit-test-task:
+        description: Gradle task used for the unit test suite
+        required: false
+        type: string
+        default: "test"
+      integration-test-task:
+        description: Gradle task used for the integration test suite
+        required: false
+        type: string
+        default: "integrationTest"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: temurin
+          cache: gradle
+
+      - name: Grant execute permission for Gradle wrapper
+        run: chmod +x ./gradlew
+
+      - name: Run unit tests
+        id: unit_tests
+        continue-on-error: true
+        run: ./gradlew ${{ inputs.unit-test-task }} ${{ inputs.gradle-args }}
+
+      - name: Summarize unit test results
+        if: always()
+        run: |
+          shopt -s nullglob globstar
+          files=(**/build/test-results/test/TEST-*.xml)
+          total=0
+          failures=0
+          errors=0
+          skipped=0
+
+          for file in "${files[@]}"; do
+            attrs=$(sed -n 's/.*tests="\([0-9]\+\)".*failures="\([0-9]\+\)".*errors="\([0-9]\+\)".*skipped="\([0-9]\+\)".*/\1 \2 \3 \4/p' "$file" | head -n 1)
+            if [[ -n "$attrs" ]]; then
+              read -r t f e s <<< "$attrs"
+              total=$((total + t))
+              failures=$((failures + f))
+              errors=$((errors + e))
+              skipped=$((skipped + s))
+            fi
+          done
+
+          {
+            echo "## Unit Test Results"
+            if (( ${#files[@]} == 0 )); then
+              echo ""
+              echo "No unit test result files were found."
+            else
+              echo ""
+              echo "| Metric | Value |"
+              echo "|--------|-------|"
+              echo "| Tests | $total |"
+              echo "| Failures | $failures |"
+              echo "| Errors | $errors |"
+              echo "| Skipped | $skipped |"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload unit test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-results
+          if-no-files-found: ignore
+          path: |
+            **/build/test-results/test/**
+            **/build/reports/tests/test/**
+
+      - name: Run integration tests
+        id: integration_tests
+        if: always()
+        continue-on-error: true
+        run: ./gradlew ${{ inputs.integration-test-task }} ${{ inputs.gradle-args }}
+
+      - name: Summarize integration test results
+        if: always()
+        run: |
+          shopt -s nullglob globstar
+          files=(**/build/test-results/integrationTest/TEST-*.xml)
+          total=0
+          failures=0
+          errors=0
+          skipped=0
+
+          for file in "${files[@]}"; do
+            attrs=$(sed -n 's/.*tests="\([0-9]\+\)".*failures="\([0-9]\+\)".*errors="\([0-9]\+\)".*skipped="\([0-9]\+\)".*/\1 \2 \3 \4/p' "$file" | head -n 1)
+            if [[ -n "$attrs" ]]; then
+              read -r t f e s <<< "$attrs"
+              total=$((total + t))
+              failures=$((failures + f))
+              errors=$((errors + e))
+              skipped=$((skipped + s))
+            fi
+          done
+
+          {
+            echo ""
+            echo "## Integration Test Results"
+            if (( ${#files[@]} == 0 )); then
+              echo ""
+              echo "No integration test result files were found."
+            else
+              echo ""
+              echo "| Metric | Value |"
+              echo "|--------|-------|"
+              echo "| Tests | $total |"
+              echo "| Failures | $failures |"
+              echo "| Errors | $errors |"
+              echo "| Skipped | $skipped |"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload integration test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          if-no-files-found: ignore
+          path: |
+            **/build/test-results/integrationTest/**
+            **/build/reports/tests/integrationTest/**
+
+      - name: Fail if any test suite failed
+        if: always()
+        run: |
+          failed=0
+
+          if [[ "${{ steps.unit_tests.outcome }}" != "success" ]]; then
+            echo "Unit tests failed."
+            failed=1
+          fi
+
+          if [[ "${{ steps.integration_tests.outcome }}" != "success" ]]; then
+            echo "Integration tests failed."
+            failed=1
+          fi
+
+          exit "$failed"

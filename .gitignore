@@ -5,3 +5,10 @@ Thumbs.db
 .vscode/
 .idea/
 .codex/
+.gradle/
+build/
+out/
+target/
+*.class
+*.jar
+*.log
