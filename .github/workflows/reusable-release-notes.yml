@@ -1,0 +1,454 @@
+name: Reusable Release Notes
+
+on:
+  workflow_call:
+    inputs:
+      base_branch:
+        description: Primary branch used to collect merged pull requests
+        required: false
+        default: main
+        type: string
+      release_boundary:
+        description: Explicit release tag or ref used as the lower bound for eligible pull requests
+        required: false
+        default: ""
+        type: string
+      category_rules:
+        description: JSON object mapping release-note section names to labels
+        required: false
+        default: >-
+          {"Features":["type:feature","feature"],"Fixes":["type:fix","fix","bug"],"Documentation":["type:docs","docs"],"Maintenance":["type:maintenance","maintenance","chore"]}
+        type: string
+      version_rules:
+        description: JSON object mapping semantic version levels to labels
+        required: false
+        default: >-
+          {"major":["release:major","semver:major","breaking"],"minor":["release:minor","semver:minor","feature"],"patch":["release:patch","semver:patch","fix","docs","maintenance","chore"]}
+        type: string
+      unlabeled_behavior:
+        description: Policy for pull requests with no recognized version metadata
+        required: false
+        default: include_as_patch
+        type: string
+      revert_handling:
+        description: Policy for reverted pull requests
+        required: false
+        default: exclude_reverted
+        type: string
+      include_pr_links:
+        description: Include pull request links in markdown output
+        required: false
+        default: true
+        type: boolean
+      include_authors:
+        description: Include author names in markdown output
+        required: false
+        default: true
+        type: boolean
+    outputs:
+      release_required:
+        description: Whether any releasable changes remain after filtering
+        value: ${{ jobs.generate.outputs.release_required }}
+      version_bump:
+        description: Selected semantic version bump
+        value: ${{ jobs.generate.outputs.version_bump }}
+      next_version:
+        description: Next resolved version string
+        value: ${{ jobs.generate.outputs.next_version }}
+      release_notes_markdown:
+        description: Human-readable release notes
+        value: ${{ jobs.generate.outputs.release_notes_markdown }}
+      release_notes_json:
+        description: Structured release note payload
+        value: ${{ jobs.generate.outputs.release_notes_json }}
+      included_pr_count:
+        description: Number of included pull requests
+        value: ${{ jobs.generate.outputs.included_pr_count }}
+      excluded_prs_with_reasons:
+        description: Structured excluded pull request list
+        value: ${{ jobs.generate.outputs.excluded_prs_with_reasons }}
+      decision_reason:
+        description: Human-readable explanation of the release decision
+        value: ${{ jobs.generate.outputs.decision_reason }}
+  workflow_dispatch:
+    inputs:
+      base_branch:
+        description: Primary branch used to collect merged pull requests
+        required: false
+        default: main
+        type: string
+      release_boundary:
+        description: Explicit release tag or ref used as the lower bound for eligible pull requests
+        required: false
+        default: ""
+        type: string
+      category_rules:
+        description: JSON object mapping release-note section names to labels
+        required: false
+        default: >-
+          {"Features":["type:feature","feature"],"Fixes":["type:fix","fix","bug"],"Documentation":["type:docs","docs"],"Maintenance":["type:maintenance","maintenance","chore"]}
+        type: string
+      version_rules:
+        description: JSON object mapping semantic version levels to labels
+        required: false
+        default: >-
+          {"major":["release:major","semver:major","breaking"],"minor":["release:minor","semver:minor","feature"],"patch":["release:patch","semver:patch","fix","docs","maintenance","chore"]}
+        type: string
+      unlabeled_behavior:
+        description: Policy for pull requests with no recognized version metadata
+        required: false
+        default: include_as_patch
+        type: choice
+        options:
+          - include_as_patch
+          - fail
+      revert_handling:
+        description: Policy for reverted pull requests
+        required: false
+        default: exclude_reverted
+        type: choice
+        options:
+          - exclude_reverted
+          - include_all
+      include_pr_links:
+        description: Include pull request links in markdown output
+        required: false
+        default: true
+        type: boolean
+      include_authors:
+        description: Include author names in markdown output
+        required: false
+        default: true
+        type: boolean
+
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    outputs:
+      release_required: ${{ steps.evaluate.outputs.release_required }}
+      version_bump: ${{ steps.evaluate.outputs.version_bump }}
+      next_version: ${{ steps.evaluate.outputs.next_version }}
+      release_notes_markdown: ${{ steps.evaluate.outputs.release_notes_markdown }}
+      release_notes_json: ${{ steps.evaluate.outputs.release_notes_json }}
+      included_pr_count: ${{ steps.evaluate.outputs.included_pr_count }}
+      excluded_prs_with_reasons: ${{ steps.evaluate.outputs.excluded_prs_with_reasons }}
+      decision_reason: ${{ steps.evaluate.outputs.decision_reason }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Evaluate merged pull requests and build release notes
+        id: evaluate
+        uses: actions/github-script@v7
+        env:
+          WORKFLOW_BASE_BRANCH: ${{ inputs.base_branch }}
+          WORKFLOW_RELEASE_BOUNDARY: ${{ inputs.release_boundary }}
+          WORKFLOW_CATEGORY_RULES: ${{ inputs.category_rules }}
+          WORKFLOW_VERSION_RULES: ${{ inputs.version_rules }}
+          WORKFLOW_UNLABELED_BEHAVIOR: ${{ inputs.unlabeled_behavior }}
+          WORKFLOW_REVERT_HANDLING: ${{ inputs.revert_handling }}
+          DEFAULT_CATEGORY_RULES: >-
+            {"Features":["type:feature","feature"],"Fixes":["type:fix","fix","bug"],"Documentation":["type:docs","docs"],"Maintenance":["type:maintenance","maintenance","chore"]}
+          DEFAULT_VERSION_RULES: >-
+            {"major":["release:major","semver:major","breaking"],"minor":["release:minor","semver:minor","feature"],"patch":["release:patch","semver:patch","fix","docs","maintenance","chore"]}
+          WORKFLOW_INCLUDE_PR_LINKS: ${{ inputs.include_pr_links }}
+          WORKFLOW_INCLUDE_AUTHORS: ${{ inputs.include_authors }}
+        with:
+          result-encoding: string
+          script: |
+            const { execSync } = require("node:child_process");
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const baseBranch = process.env.WORKFLOW_BASE_BRANCH || "main";
+            const includePrLinks = String(process.env.WORKFLOW_INCLUDE_PR_LINKS ?? "true").toLowerCase() === "true";
+            const includeAuthors = String(process.env.WORKFLOW_INCLUDE_AUTHORS ?? "true").toLowerCase() === "true";
+            const unlabeledBehavior = process.env.WORKFLOW_UNLABELED_BEHAVIOR || "include_as_patch";
+            const revertHandling = process.env.WORKFLOW_REVERT_HANDLING || "exclude_reverted";
+
+            function readJsonInput(name, fallbackEnv) {
+              const inputEnvName = `WORKFLOW_${name.toUpperCase()}`;
+              const raw = process.env[inputEnvName] || process.env[fallbackEnv] || "{}";
+              try {
+                return JSON.parse(raw);
+              } catch (error) {
+                throw new Error(`Invalid JSON supplied for ${name}: ${error.message}`);
+              }
+            }
+
+            function command(commandText) {
+              return execSync(commandText, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+            }
+
+            function normalizeRuleLabels(value) {
+              if (Array.isArray(value)) {
+                return value.map((entry) => String(entry).toLowerCase());
+              }
+              if (value && Array.isArray(value.labels)) {
+                return value.labels.map((entry) => String(entry).toLowerCase());
+              }
+              return [];
+            }
+
+            function matchesRule(labels, ruleValue) {
+              const expected = normalizeRuleLabels(ruleValue);
+              return expected.some((label) => labels.includes(label));
+            }
+
+            function parseVersion(tagName) {
+              const match = String(tagName || "").match(/v?(\d+)\.(\d+)\.(\d+)/);
+              if (!match) {
+                return { major: 0, minor: 0, patch: 0 };
+              }
+              return {
+                major: Number(match[1]),
+                minor: Number(match[2]),
+                patch: Number(match[3]),
+              };
+            }
+
+            function formatVersion(version) {
+              return `${version.major}.${version.minor}.${version.patch}`;
+            }
+
+            function bumpVersion(currentVersion, bump) {
+              const next = { ...currentVersion };
+              if (bump === "major") {
+                next.major += 1;
+                next.minor = 0;
+                next.patch = 0;
+              } else if (bump === "minor") {
+                next.minor += 1;
+                next.patch = 0;
+              } else if (bump === "patch") {
+                next.patch += 1;
+              }
+              return next;
+            }
+
+            const categoryRules = readJsonInput("category_rules", "DEFAULT_CATEGORY_RULES");
+            const versionRules = readJsonInput("version_rules", "DEFAULT_VERSION_RULES");
+            const categoryEntries = Object.entries(categoryRules);
+            const versionEntries = Object.entries(versionRules);
+            const precedence = { none: 0, patch: 1, minor: 2, major: 3 };
+
+            command("git fetch --tags --force");
+            command(`git fetch origin ${baseBranch} --depth=1`);
+
+            let releaseBoundary = (process.env.WORKFLOW_RELEASE_BOUNDARY || "").trim();
+            if (!releaseBoundary) {
+              try {
+                const mergedTags = command(`git tag --merged origin/${baseBranch} --sort=-creatordate`);
+                releaseBoundary = mergedTags.split("\n").find(Boolean) || "";
+              } catch (error) {
+                releaseBoundary = "";
+              }
+            }
+
+            const range = releaseBoundary ? `${releaseBoundary}..origin/${baseBranch}` : `origin/${baseBranch}`;
+            let mergeCommits = [];
+            try {
+              mergeCommits = command(`git log --merges --pretty=%H ${range}`)
+                .split("\n")
+                .filter(Boolean)
+                .reverse();
+            } catch (error) {
+              mergeCommits = [];
+            }
+
+            const prMap = new Map();
+            for (const sha of mergeCommits) {
+              const response = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner,
+                repo,
+                commit_sha: sha,
+              });
+              for (const pr of response.data) {
+                if (pr.base && pr.base.ref === baseBranch && pr.merged_at) {
+                  prMap.set(pr.number, pr);
+                }
+              }
+            }
+
+            const pullRequests = Array.from(prMap.values()).sort(
+              (left, right) => new Date(left.merged_at) - new Date(right.merged_at),
+            );
+
+            const revertedNumbers = new Set();
+            const revertPrNumbers = new Set();
+            for (const pr of pullRequests) {
+              const body = `${pr.title}\n${pr.body || ""}`;
+              if (!/^revert\b/i.test(pr.title)) {
+                continue;
+              }
+              const matches = [...body.matchAll(/#(\d+)/g)]
+                .map((match) => Number(match[1]))
+                .filter((value) => prMap.has(value));
+              if (matches.length === 0) {
+                continue;
+              }
+              revertPrNumbers.add(pr.number);
+              for (const number of matches) {
+                revertedNumbers.add(number);
+              }
+            }
+
+            const included = [];
+            const excluded = [];
+            const fatalMessages = [];
+            let highestImpact = "none";
+
+            for (const pr of pullRequests) {
+              if (revertHandling === "exclude_reverted" && (revertedNumbers.has(pr.number) || revertPrNumbers.has(pr.number))) {
+                excluded.push({ number: pr.number, reason: "reverted_before_release" });
+                continue;
+              }
+
+              const labels = (pr.labels || []).map((label) => String(label.name || "").toLowerCase());
+
+              let category = "Other Changes";
+              for (const [sectionName, ruleValue] of categoryEntries) {
+                if (matchesRule(labels, ruleValue)) {
+                  category = sectionName;
+                  break;
+                }
+              }
+
+              const matchedLevels = versionEntries
+                .filter(([level, ruleValue]) => precedence[level] && matchesRule(labels, ruleValue))
+                .map(([level]) => level);
+
+              if (matchedLevels.length > 1) {
+                fatalMessages.push(
+                  `Pull request #${pr.number} has conflicting semantic version labels: ${matchedLevels.join(", ")}`,
+                );
+                excluded.push({ number: pr.number, reason: "conflicting_version_metadata" });
+                continue;
+              }
+
+              let versionImpact = matchedLevels[0] || "unspecified";
+              if (versionImpact === "unspecified") {
+                if (unlabeledBehavior === "fail") {
+                  fatalMessages.push(
+                    `Pull request #${pr.number} does not contain recognized semantic version metadata`,
+                  );
+                  excluded.push({ number: pr.number, reason: "missing_version_metadata" });
+                  continue;
+                }
+                versionImpact = "patch";
+              }
+
+              if (precedence[versionImpact] > precedence[highestImpact]) {
+                highestImpact = versionImpact;
+              }
+
+              included.push({
+                number: pr.number,
+                title: pr.title,
+                url: pr.html_url,
+                author: pr.user ? pr.user.login : "unknown",
+                category,
+                versionImpact,
+                mergedAt: pr.merged_at,
+              });
+            }
+
+            if (fatalMessages.length > 0) {
+              throw new Error(fatalMessages.join("\n"));
+            }
+
+            const groupedSections = new Map();
+            for (const [sectionName] of categoryEntries) {
+              groupedSections.set(sectionName, []);
+            }
+            groupedSections.set("Other Changes", []);
+
+            for (const item of included) {
+              if (!groupedSections.has(item.category)) {
+                groupedSections.set(item.category, []);
+              }
+              groupedSections.get(item.category).push(item);
+            }
+
+            const sectionPayload = [];
+            const markdownSections = [];
+            for (const [sectionName, entries] of groupedSections.entries()) {
+              if (!entries.length) {
+                continue;
+              }
+              sectionPayload.push({
+                section_name: sectionName,
+                entries: entries.map((entry) => ({
+                  number: entry.number,
+                  title: entry.title,
+                  url: entry.url,
+                  author: entry.author,
+                  version_impact: entry.versionImpact,
+                })),
+              });
+              markdownSections.push(`## ${sectionName}`);
+              for (const entry of entries) {
+                const suffix = [];
+                if (includePrLinks) {
+                  suffix.push(`[#${entry.number}](${entry.url})`);
+                } else {
+                  suffix.push(`#${entry.number}`);
+                }
+                if (includeAuthors) {
+                  suffix.push(`by @${entry.author}`);
+                }
+                markdownSections.push(`- ${entry.title} (${suffix.join(", ")})`);
+              }
+              markdownSections.push("");
+            }
+
+            const releaseRequired = included.length > 0;
+            const currentVersion = parseVersion(releaseBoundary);
+            const nextVersion = releaseRequired ? formatVersion(bumpVersion(currentVersion, highestImpact)) : "";
+            const decisionReason = releaseRequired
+              ? `Selected ${highestImpact} because the highest-impact eligible pull request requires that bump.`
+              : "No releasable changes were found after the current release boundary.";
+            const releaseNotesMarkdown = releaseRequired
+              ? markdownSections.join("\n").trim()
+              : "No releasable changes.";
+            const releaseNotesJson = JSON.stringify({
+              base_branch: baseBranch,
+              release_boundary: releaseBoundary,
+              release_required: releaseRequired,
+              version_bump: releaseRequired ? highestImpact : "none",
+              next_version: nextVersion,
+              sections: sectionPayload,
+            });
+            const excludedJson = JSON.stringify(excluded);
+
+            core.setOutput("release_required", releaseRequired ? "true" : "false");
+            core.setOutput("version_bump", releaseRequired ? highestImpact : "none");
+            core.setOutput("next_version", nextVersion);
+            core.setOutput("release_notes_markdown", releaseNotesMarkdown);
+            core.setOutput("release_notes_json", releaseNotesJson);
+            core.setOutput("included_pr_count", String(included.length));
+            core.setOutput("excluded_prs_with_reasons", excludedJson);
+            core.setOutput("decision_reason", decisionReason);
+
+            core.startGroup("Release notes outputs");
+            core.info(`release_required=${releaseRequired ? "true" : "false"}`);
+            core.info(`version_bump=${releaseRequired ? highestImpact : "none"}`);
+            core.info(`next_version=${nextVersion}`);
+            core.info(`release_notes_markdown=${releaseNotesMarkdown}`);
+            core.info(`release_notes_json=${releaseNotesJson}`);
+            core.info(`included_pr_count=${String(included.length)}`);
+            core.info(`excluded_prs_with_reasons=${excludedJson}`);
+            core.info(`decision_reason=${decisionReason}`);
+            core.endGroup();
+
+            return releaseNotesMarkdown;
