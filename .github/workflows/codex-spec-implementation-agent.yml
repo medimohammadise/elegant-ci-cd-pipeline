@@ -8,6 +8,12 @@ on:
         required: false
         default: /prompts.speckit.implement 004 do not ask question and decide yourself session should be non-interactive and commands are allowed
         type: string
+  workflow_call:
+    inputs:
+      prompt:
+        description: Prompt sent to Codex CLI
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -65,7 +71,7 @@ jobs:
 
       - name: Run Codex Spec Implement (non-interactive)
         env:
-          CODEX_PROMPT: ${{ github.event.inputs.prompt || '/prompts.speckit.implement 004 do not ask question and decide yourself session should be non-interactive and commands are allowed' }}
+          CODEX_PROMPT: ${{ inputs.prompt || github.event.inputs.prompt || '/prompts.speckit.implement 004 do not ask question and decide yourself session should be non-interactive and commands are allowed' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -129,9 +135,21 @@ jobs:
             exit "$codex_status"
           fi
 
+      - name: Detect repository changes
+        id: detect_changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Commit, push, and open pull request
         id: create_pr
-        uses: peter-evans/create-pull-request@v6
+        if: steps.detect_changes.outputs.has_changes == 'true'
+        uses: peter-evans/create-pull-request@v7
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           base: ${{ github.ref_name }}
@@ -143,13 +161,15 @@ jobs:
             Automated changes from Codex Spec Implement workflow.
 
             Prompt:
-            `${{ github.event.inputs.prompt || '/prompts.speckit.implement 004 do not ask question and decide yourself session should be non-interactive and commands are allowed' }}`
+            `${{ inputs.prompt || github.event.inputs.prompt || '/prompts.speckit.implement 004 do not ask question and decide yourself session should be non-interactive and commands are allowed' }}`
 
       - name: Print PR result
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${{ steps.create_pr.outputs.pull-request-number }}" != "" ]; then
+          if [ "${{ steps.detect_changes.outputs.has_changes }}" != "true" ]; then
+            echo "No pull request created (no file changes)."
+          elif [ "${{ steps.create_pr.outputs.pull-request-number }}" != "" ]; then
             echo "Pull request created/updated:"
             echo "${{ steps.create_pr.outputs.pull-request-url }}"
           else
