@@ -65,6 +65,9 @@ jobs:
             export CODEX_HOME="$PWD/.codex"
           fi
           normalized_prompt="$CODEX_PROMPT"
+          echo "Workflow input prompt: $CODEX_PROMPT"
+          echo "Resolved prompt: $normalized_prompt"
+          echo "Using CODEX_HOME: $CODEX_HOME"
 
           if [[ "$normalized_prompt" != /prompts.* ]]; then
             echo "Invalid prompt format: $normalized_prompt"
@@ -90,7 +93,7 @@ jobs:
             codex_cmd=(codex exec --skip-git-repo-check "$normalized_prompt")
           fi
 
-          echo "Attempting: ${codex_cmd[*]}"
+          echo "Codex command: ${codex_cmd[*]}"
           set +e
           codex_output="$("${codex_cmd[@]}" 2>&1)"
           codex_status=$?
