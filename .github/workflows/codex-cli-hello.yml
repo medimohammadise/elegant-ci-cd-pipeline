@@ -26,6 +26,9 @@ jobs:
         run: |
           set -euo pipefail
 
+          export CODEX_HOME="$PWD/.codex"
+          echo "CODEX_HOME=$CODEX_HOME" >> "$GITHUB_ENV"
+
           if command -v codex >/dev/null 2>&1; then
             :
           elif [ -x /opt/homebrew/bin/codex ]; then
@@ -40,8 +43,14 @@ jobs:
 
           echo "Runner user: $(whoami)"
           echo "PATH: $PATH"
+          echo "CODEX_HOME: $CODEX_HOME"
           which codex
           codex --version
+
+          if [ ! -f "$CODEX_HOME/prompts/speckit.specify.md" ]; then
+            echo "Missing Spec Kit prompt: $CODEX_HOME/prompts/speckit.specify.md"
+            exit 1
+          fi
 
       - name: Run Codex CLI without API key requirement
         env:
@@ -49,11 +58,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          export CODEX_HOME="$PWD/.codex"
+          normalized_prompt="$CODEX_PROMPT"
+
+          if [[ "$normalized_prompt" == /speckit.* ]]; then
+            normalized_prompt="/prompts.${normalized_prompt#/}"
+          fi
 
           if [ -t 0 ] && [ -t 1 ]; then
-            codex_cmd=(codex "$CODEX_PROMPT")
+            codex_cmd=(codex "$normalized_prompt")
           else
-            codex_cmd=(codex exec --skip-git-repo-check "$CODEX_PROMPT")
+            codex_cmd=(codex exec --skip-git-repo-check "$normalized_prompt")
           fi
 
           echo "Attempting: ${codex_cmd[*]}"
