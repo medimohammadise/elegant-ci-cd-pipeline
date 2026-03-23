@@ -175,6 +175,10 @@ jobs:
       - name: Commit, push, and open pull request
         id: create_pr
         if: steps.detect_changes.outputs.has_changes == 'true'
+        env:
+          LANG: C.UTF-8
+          LC_ALL: C.UTF-8
+          LANGUAGE: C
         uses: peter-evans/create-pull-request@v7
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
