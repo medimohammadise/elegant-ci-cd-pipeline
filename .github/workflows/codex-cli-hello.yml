@@ -29,10 +29,9 @@ jobs:
           set -euo pipefail
 
           echo "Attempting: codex exec \"$CODEX_PROMPT\""
-          if codex "$CODEX_PROMPT"; then
-            echo "Codex prompt executed successfully."
+          codex "$CODEX_PROMPT"; then
+            echo "Codex CLI executed successfully."
           else
-            echo "Codex exec could not run in this environment without authentication; confirming CLI invocation with --help instead."
-            codex --help | sed -n '1,40p'
-            echo "hello"
+            echo "Codex CLI execution failed. Please ensure the Codex CLI is installed and configured correctly."
+            exit 1
           fi
