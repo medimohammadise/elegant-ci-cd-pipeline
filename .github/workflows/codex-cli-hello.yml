@@ -28,7 +28,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "Attempting: codex exec \"$CODEX_PROMPT\""
+          echo "Attempting: codex \"$CODEX_PROMPT\""
           set +e
           codex_output="$(codex "$CODEX_PROMPT" 2>&1)"
           codex_status=$?
