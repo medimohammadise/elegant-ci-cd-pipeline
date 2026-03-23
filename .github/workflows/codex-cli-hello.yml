@@ -21,6 +21,28 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Verify Codex CLI is available on runner
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if command -v codex >/dev/null 2>&1; then
+            :
+          elif [ -x /opt/homebrew/bin/codex ]; then
+            echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
+          elif [ -x /usr/local/bin/codex ]; then
+            echo "/usr/local/bin" >> "$GITHUB_PATH"
+          else
+            echo "Codex CLI not found for runner user: $(whoami)"
+            echo "Install Codex for this user, or add its bin directory to PATH for the runner service."
+            exit 1
+          fi
+
+          echo "Runner user: $(whoami)"
+          echo "PATH: $PATH"
+          which codex
+          codex --version
+
       - name: Run Codex CLI without API key requirement
         env:
           CODEX_PROMPT: ${{ github.event.inputs.prompt || 'Say hello' }}
