@@ -4,4 +4,6 @@ Thumbs.db
 *.swp
 .vscode/
 .idea/
-.codex/
+.codex/*
+!.codex/prompts/
+!.codex/prompts/*.md
