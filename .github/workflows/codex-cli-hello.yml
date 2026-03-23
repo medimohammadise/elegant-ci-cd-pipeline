@@ -21,17 +21,6 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Ensure Codex CLI is installed
-        shell: bash
-        run: |
-          if command -v codex >/dev/null 2>&1; then
-            echo "Codex CLI already installed: $(codex --version)"
-          else
-            echo "Installing Codex CLI..."
-            npm install -g @openai/codex
-            codex --version
-          fi
-
       - name: Run Codex CLI without API key requirement
         env:
           CODEX_PROMPT: ${{ github.event.inputs.prompt || 'Say hello' }}
@@ -40,7 +29,7 @@ jobs:
           set -euo pipefail
 
           echo "Attempting: codex exec \"$CODEX_PROMPT\""
-          if codex exec "$CODEX_PROMPT"; then
+          if codex "$CODEX_PROMPT"; then
             echo "Codex prompt executed successfully."
           else
             echo "Codex exec could not run in this environment without authentication; confirming CLI invocation with --help instead."
