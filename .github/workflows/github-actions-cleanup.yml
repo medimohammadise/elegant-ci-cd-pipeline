@@ -1,0 +1,149 @@
+name: GitHub Actions Cleanup
+
+on:
+  workflow_dispatch:
+    inputs:
+      workflow_file:
+        description: "Workflow file name to clean (blank = all workflows), e.g. codex-spec-implementation-agent.yml"
+        required: false
+        default: ""
+        type: string
+      delete_failed:
+        description: "Delete failed runs"
+        required: true
+        default: true
+        type: boolean
+      older_than_days:
+        description: "Delete runs older than this many days (0 disables age-based deletion)"
+        required: true
+        default: "14"
+        type: string
+      dry_run:
+        description: "Only report what would be deleted"
+        required: true
+        default: false
+        type: boolean
+  workflow_call:
+    inputs:
+      workflow_file:
+        description: "Workflow file name to clean (blank = all workflows), e.g. codex-spec-implementation-agent.yml"
+        required: false
+        type: string
+      delete_failed:
+        description: "Delete failed runs"
+        required: false
+        default: true
+        type: boolean
+      older_than_days:
+        description: "Delete runs older than this many days (0 disables age-based deletion)"
+        required: false
+        default: "14"
+        type: string
+      dry_run:
+        description: "Only report what would be deleted"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete old/failed workflow runs
+        id: delete
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const workflowFile = `${{ inputs.workflow_file || github.event.inputs.workflow_file || '' }}`.trim();
+            const deleteFailed = `${{ inputs.delete_failed || github.event.inputs.delete_failed || true }}` === "true";
+            const olderThanDays = Number(`${{ inputs.older_than_days || github.event.inputs.older_than_days || '0' }}`);
+            const dryRun = `${{ inputs.dry_run || github.event.inputs.dry_run || false }}` === "true";
+
+            if (!Number.isFinite(olderThanDays) || olderThanDays < 0) {
+              core.setFailed(`Invalid older_than_days: ${olderThanDays}`);
+              return;
+            }
+
+            const now = Date.now();
+            const cutoffMs = olderThanDays > 0 ? olderThanDays * 24 * 60 * 60 * 1000 : null;
+            const currentRunId = context.runId;
+
+            core.info(`Repo: ${owner}/${repo}`);
+            core.info(`workflow_file: ${workflowFile || "(all workflows)"}`);
+            core.info(`delete_failed: ${deleteFailed}`);
+            core.info(`older_than_days: ${olderThanDays}`);
+            core.info(`dry_run: ${dryRun}`);
+
+            let runs = [];
+            if (workflowFile) {
+              runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+                owner,
+                repo,
+                workflow_id: workflowFile,
+                per_page: 100,
+              });
+            } else {
+              runs = await github.paginate(github.rest.actions.listWorkflowRunsForRepo, {
+                owner,
+                repo,
+                per_page: 100,
+              });
+            }
+
+            const isFailed = (run) => run.conclusion === "failure";
+            const isOld = (run) => cutoffMs !== null && (now - Date.parse(run.created_at)) >= cutoffMs;
+
+            const candidates = runs.filter((run) => {
+              if (run.id === currentRunId) return false;
+              const failedMatch = deleteFailed && isFailed(run);
+              const oldMatch = isOld(run);
+              return failedMatch || oldMatch;
+            });
+
+            core.info(`Total runs scanned: ${runs.length}`);
+            core.info(`Runs matched for deletion: ${candidates.length}`);
+
+            let deleted = 0;
+            let failedDeletes = 0;
+            for (const run of candidates) {
+              const reason = [
+                deleteFailed && isFailed(run) ? "failed" : null,
+                isOld(run) ? `older_than_${olderThanDays}_days` : null,
+              ].filter(Boolean).join("+");
+
+              if (dryRun) {
+                core.info(`[dry-run] would delete run_id=${run.id} workflow=${run.name} status=${run.status} conclusion=${run.conclusion} reason=${reason}`);
+                continue;
+              }
+
+              try {
+                await github.rest.actions.deleteWorkflowRun({
+                  owner,
+                  repo,
+                  run_id: run.id,
+                });
+                deleted += 1;
+                core.info(`deleted run_id=${run.id} workflow=${run.name} reason=${reason}`);
+              } catch (err) {
+                failedDeletes += 1;
+                core.warning(`failed deleting run_id=${run.id}: ${err.message}`);
+              }
+            }
+
+            core.setOutput("scanned", String(runs.length));
+            core.setOutput("matched", String(candidates.length));
+            core.setOutput("deleted", String(deleted));
+            core.setOutput("failed_deletes", String(failedDeletes));
+
+      - name: Print summary
+        run: |
+          echo "scanned=${{ steps.delete.outputs.scanned }}"
+          echo "matched=${{ steps.delete.outputs.matched }}"
+          echo "deleted=${{ steps.delete.outputs.deleted }}"
+          echo "failed_deletes=${{ steps.delete.outputs.failed_deletes }}"
