@@ -1,4 +1,4 @@
-name: Codex CLI Hello
+name: Codex Spec Implement Agent
 
 on:
   workflow_dispatch:
@@ -10,14 +10,17 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
 
 jobs:
-  codex-hello:
+  codex-spec-implement:
     runs-on: self-hosted
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Verify Codex CLI is available on runner
         shell: bash
@@ -60,9 +63,9 @@ jobs:
           which codex
           codex --version
 
-      - name: Run Codex CLI without API key requirement
+      - name: Run Codex Spec Implement (non-interactive)
         env:
-          CODEX_PROMPT: ${{ github.event.inputs.prompt || 'Say hello' }}
+          CODEX_PROMPT: ${{ github.event.inputs.prompt || '/prompts.speckit.implement 004 do not ask question and decide yourself session should be non-interactive and commands are allowed' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -124,4 +127,31 @@ jobs:
             echo "Exact error from Codex CLI:"
             echo "$codex_output"
             exit "$codex_status"
+          fi
+
+      - name: Commit, push, and open pull request
+        id: create_pr
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          base: ${{ github.ref_name }}
+          branch: codex/spec-implement-${{ github.run_id }}
+          delete-branch: true
+          commit-message: "feat: apply Codex Spec Implement updates"
+          title: "Codex Spec Implement updates (run ${{ github.run_id }})"
+          body: |
+            Automated changes from Codex Spec Implement workflow.
+
+            Prompt:
+            `${{ github.event.inputs.prompt || '/prompts.speckit.implement 004 do not ask question and decide yourself session should be non-interactive and commands are allowed' }}`
+
+      - name: Print PR result
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.create_pr.outputs.pull-request-number }}" != "" ]; then
+            echo "Pull request created/updated:"
+            echo "${{ steps.create_pr.outputs.pull-request-url }}"
+          else
+            echo "No pull request created (likely no file changes)."
           fi
