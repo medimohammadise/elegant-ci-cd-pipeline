@@ -26,9 +26,18 @@ jobs:
 
           export CODEX_HOME="$HOME/.codex"
           mkdir -p "$CODEX_HOME/prompts"
+          echo "Workspace: $PWD"
+          echo "Prompt source: $PWD/.codex/prompts"
+          echo "Prompt target: $CODEX_HOME/prompts"
 
           if [ -d "$PWD/.codex/prompts" ]; then
-            cp -f "$PWD"/.codex/prompts/*.md "$CODEX_HOME/prompts/" 2>/dev/null || true
+            mapfile -t repo_prompt_files < <(find "$PWD/.codex/prompts" -maxdepth 1 -type f -name '*.md' | sort)
+            echo "Repo prompt files found: ${#repo_prompt_files[@]}"
+            if [ "${#repo_prompt_files[@]}" -gt 0 ]; then
+              cp -vf "${repo_prompt_files[@]}" "$CODEX_HOME/prompts/"
+            fi
+          else
+            echo "Repo prompt directory not found in checkout: $PWD/.codex/prompts"
           fi
 
           echo "CODEX_HOME=$CODEX_HOME" >> "$GITHUB_ENV"
@@ -59,8 +68,17 @@ jobs:
           set -euo pipefail
           export CODEX_HOME="$HOME/.codex"
           mkdir -p "$CODEX_HOME/prompts"
+          echo "Workspace: $PWD"
+          echo "Prompt source: $PWD/.codex/prompts"
+          echo "Prompt target: $CODEX_HOME/prompts"
           if [ -d "$PWD/.codex/prompts" ]; then
-            cp -f "$PWD"/.codex/prompts/*.md "$CODEX_HOME/prompts/" 2>/dev/null || true
+            mapfile -t repo_prompt_files < <(find "$PWD/.codex/prompts" -maxdepth 1 -type f -name '*.md' | sort)
+            echo "Repo prompt files found: ${#repo_prompt_files[@]}"
+            if [ "${#repo_prompt_files[@]}" -gt 0 ]; then
+              cp -vf "${repo_prompt_files[@]}" "$CODEX_HOME/prompts/"
+            fi
+          else
+            echo "Repo prompt directory not found in checkout: $PWD/.codex/prompts"
           fi
           normalized_prompt="$CODEX_PROMPT"
           echo "Workflow input prompt: $CODEX_PROMPT"
