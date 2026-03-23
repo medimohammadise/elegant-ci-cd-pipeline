@@ -24,12 +24,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          export CODEX_HOME="$PWD/.codex"
-          if [ ! -d "$CODEX_HOME" ]; then
-            echo "Repo-local CODEX_HOME not found: $CODEX_HOME"
-            echo "Add .codex to this repository checkout. Home fallback is disabled."
-            exit 1
+          export CODEX_HOME="$HOME/.codex"
+          mkdir -p "$CODEX_HOME/prompts"
+
+          if [ -d "$PWD/.codex/prompts" ]; then
+            cp -f "$PWD"/.codex/prompts/*.md "$CODEX_HOME/prompts/" 2>/dev/null || true
           fi
+
           echo "CODEX_HOME=$CODEX_HOME" >> "$GITHUB_ENV"
 
           if command -v codex >/dev/null 2>&1; then
@@ -56,11 +57,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          export CODEX_HOME="$PWD/.codex"
-          if [ ! -d "$CODEX_HOME" ]; then
-            echo "Repo-local CODEX_HOME not found: $CODEX_HOME"
-            echo "Add .codex to this repository checkout. Home fallback is disabled."
-            exit 1
+          export CODEX_HOME="$HOME/.codex"
+          mkdir -p "$CODEX_HOME/prompts"
+          if [ -d "$PWD/.codex/prompts" ]; then
+            cp -f "$PWD"/.codex/prompts/*.md "$CODEX_HOME/prompts/" 2>/dev/null || true
           fi
           normalized_prompt="$CODEX_PROMPT"
           echo "Workflow input prompt: $CODEX_PROMPT"
