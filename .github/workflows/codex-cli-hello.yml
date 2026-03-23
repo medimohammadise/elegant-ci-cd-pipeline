@@ -50,9 +50,15 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "Attempting: codex \"$CODEX_PROMPT\""
+          if [ -t 0 ] && [ -t 1 ]; then
+            codex_cmd=(codex "$CODEX_PROMPT")
+          else
+            codex_cmd=(codex exec "$CODEX_PROMPT")
+          fi
+
+          echo "Attempting: ${codex_cmd[*]}"
           set +e
-          codex_output="$(codex "$CODEX_PROMPT" 2>&1)"
+          codex_output="$("${codex_cmd[@]}" 2>&1)"
           codex_status=$?
           set -e
 
