@@ -190,13 +190,15 @@ jobs:
             `${{ inputs.prompt || github.event.inputs.prompt || '/prompts.speckit.implement 004 do not ask question and decide yourself session should be non-interactive and commands are allowed' }}`
 
       - name: Print PR result
+        env:
+          CODEX_FINAL_FEEDBACK: ${{ steps.run_codex.outputs.final_feedback }}
         shell: bash
         run: |
           set -euo pipefail
           if [ "${{ steps.detect_changes.outputs.has_changes }}" != "true" ]; then
             echo "No pull request created because working tree changes were '${{ steps.detect_changes.outputs.has_worktree_changes }}' and ahead commits were '${{ steps.detect_changes.outputs.has_ahead_commits }}' (ahead_count=${{ steps.detect_changes.outputs.ahead_count }})."
-            if [ -n "${{ steps.run_codex.outputs.final_feedback }}" ]; then
-              echo "Codex final feedback: ${{ steps.run_codex.outputs.final_feedback }}"
+            if [ -n "$CODEX_FINAL_FEEDBACK" ]; then
+              echo "Codex final feedback: $CODEX_FINAL_FEEDBACK"
             fi
           elif [ "${{ steps.create_pr.outputs.pull-request-number }}" != "" ]; then
             echo "Pull request created/updated:"
