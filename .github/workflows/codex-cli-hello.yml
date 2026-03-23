@@ -16,10 +16,8 @@ jobs:
   codex-hello:
     runs-on: self-hosted
     steps:
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
+      - name: Check out repository
+        uses: actions/checkout@v4
 
       - name: Verify Codex CLI is available on runner
         shell: bash
