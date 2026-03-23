@@ -29,9 +29,16 @@ jobs:
           set -euo pipefail
 
           echo "Attempting: codex exec \"$CODEX_PROMPT\""
-          codex "$CODEX_PROMPT"; then
+          set +e
+          codex_output="$(codex "$CODEX_PROMPT" 2>&1)"
+          codex_status=$?
+          set -e
+
+          if [ "$codex_status" -eq 0 ]; then
             echo "Codex CLI executed successfully."
           else
             echo "Codex CLI execution failed. Please ensure the Codex CLI is installed and configured correctly."
-            exit 1
+            echo "Exact error from Codex CLI:"
+            echo "$codex_output"
+            exit "$codex_status"
           fi
