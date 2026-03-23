@@ -70,6 +70,7 @@ jobs:
           codex --version
 
       - name: Run Codex Spec Implement (non-interactive)
+        id: run_codex
         env:
           CODEX_PROMPT: ${{ inputs.prompt || github.event.inputs.prompt || '/prompts.speckit.implement 004 do not ask question and decide yourself session should be non-interactive and commands are allowed' }}
         shell: bash
@@ -128,6 +129,10 @@ jobs:
             echo "Codex CLI executed successfully."
             echo "Codex CLI response:"
             echo "$codex_output"
+            codex_final_feedback="$(printf '%s\n' "$codex_output" | awk 'NF { line = $0 } END { print line }')"
+            echo "final_feedback<<EOF" >> "$GITHUB_OUTPUT"
+            printf '%s\n' "$codex_final_feedback" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
           else
             echo "Codex CLI execution failed. Please ensure the Codex CLI is installed and configured correctly."
             echo "Exact error from Codex CLI:"
@@ -159,6 +164,9 @@ jobs:
           else
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
           fi
+          echo "has_worktree_changes=$has_worktree_changes" >> "$GITHUB_OUTPUT"
+          echo "has_ahead_commits=$has_ahead_commits" >> "$GITHUB_OUTPUT"
+          echo "ahead_count=$ahead_count" >> "$GITHUB_OUTPUT"
 
           echo "has_worktree_changes=$has_worktree_changes"
           echo "has_ahead_commits=$has_ahead_commits"
@@ -186,7 +194,10 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ steps.detect_changes.outputs.has_changes }}" != "true" ]; then
-            echo "No pull request created (no file changes)."
+            echo "No pull request created because working tree changes were '${{ steps.detect_changes.outputs.has_worktree_changes }}' and ahead commits were '${{ steps.detect_changes.outputs.has_ahead_commits }}' (ahead_count=${{ steps.detect_changes.outputs.ahead_count }})."
+            if [ -n "${{ steps.run_codex.outputs.final_feedback }}" ]; then
+              echo "Codex final feedback: ${{ steps.run_codex.outputs.final_feedback }}"
+            fi
           elif [ "${{ steps.create_pr.outputs.pull-request-number }}" != "" ]; then
             echo "Pull request created/updated:"
             echo "${{ steps.create_pr.outputs.pull-request-url }}"
