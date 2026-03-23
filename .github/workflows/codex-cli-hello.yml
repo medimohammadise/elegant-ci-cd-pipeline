@@ -26,7 +26,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          export CODEX_HOME="$PWD/.codex"
+          if [ -d "$PWD/.codex" ]; then
+            export CODEX_HOME="$PWD/.codex"
+          elif [ -d "$HOME/.codex" ]; then
+            export CODEX_HOME="$HOME/.codex"
+          else
+            export CODEX_HOME="$PWD/.codex"
+          fi
           echo "CODEX_HOME=$CODEX_HOME" >> "$GITHUB_ENV"
 
           if command -v codex >/dev/null 2>&1; then
@@ -47,22 +53,31 @@ jobs:
           which codex
           codex --version
 
-          if [ ! -f "$CODEX_HOME/prompts/speckit.specify.md" ]; then
-            echo "Missing Spec Kit prompt: $CODEX_HOME/prompts/speckit.specify.md"
-            exit 1
-          fi
-
       - name: Run Codex CLI without API key requirement
         env:
           CODEX_PROMPT: ${{ github.event.inputs.prompt || 'Say hello' }}
         shell: bash
         run: |
           set -euo pipefail
-          export CODEX_HOME="$PWD/.codex"
+          if [ -d "$PWD/.codex" ]; then
+            export CODEX_HOME="$PWD/.codex"
+          elif [ -d "$HOME/.codex" ]; then
+            export CODEX_HOME="$HOME/.codex"
+          else
+            export CODEX_HOME="$PWD/.codex"
+          fi
           normalized_prompt="$CODEX_PROMPT"
 
           if [[ "$normalized_prompt" == /speckit.* ]]; then
             normalized_prompt="/prompts.${normalized_prompt#/}"
+          fi
+
+          if [[ "$normalized_prompt" == /prompts.speckit.* ]]; then
+            if [ ! -f "$CODEX_HOME/prompts/speckit.specify.md" ]; then
+              echo "Missing Spec Kit prompt: $CODEX_HOME/prompts/speckit.specify.md"
+              echo "Current CODEX_HOME: $CODEX_HOME"
+              exit 1
+            fi
           fi
 
           if [ -t 0 ] && [ -t 1 ]; then
