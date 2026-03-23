@@ -30,7 +30,7 @@ jobs:
             export CODEX_HOME="$HOME/.codex"
           else
             export CODEX_HOME="$PWD/.codex"
-          fi
+s          fi
           echo "CODEX_HOME=$CODEX_HOME" >> "$GITHUB_ENV"
 
           if command -v codex >/dev/null 2>&1; then
@@ -66,13 +66,21 @@ jobs:
           fi
           normalized_prompt="$CODEX_PROMPT"
 
+          if [[ "$normalized_prompt" == /prompots.* ]]; then
+            normalized_prompt="/prompts.${normalized_prompt#/prompots.}"
+          fi
+
           if [[ "$normalized_prompt" == /speckit.* ]]; then
             normalized_prompt="/prompts.${normalized_prompt#/}"
           fi
 
           if [[ "$normalized_prompt" == /prompts.speckit.* ]]; then
-            if [ ! -f "$CODEX_HOME/prompts/speckit.specify.md" ]; then
-              echo "Missing Spec Kit prompt: $CODEX_HOME/prompts/speckit.specify.md"
+            prompt_name="${normalized_prompt#/prompts.}"
+            prompt_name="${prompt_name%% *}"
+            prompt_file="$CODEX_HOME/prompts/${prompt_name}.md"
+
+            if [ ! -f "$prompt_file" ]; then
+              echo "Missing Spec Kit prompt: $prompt_file"
               echo "Current CODEX_HOME: $CODEX_HOME"
               exit 1
             fi
