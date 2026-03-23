@@ -6,7 +6,7 @@ on:
       prompt:
         description: Prompt sent to Codex CLI
         required: false
-        default: Say hello
+        default: /prompts.speckit.implement 004 do not ask question and decide yourself session should be non-interactive and commands are allowed
         type: string
 
 permissions:
