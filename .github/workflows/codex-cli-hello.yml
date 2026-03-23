@@ -53,7 +53,7 @@ jobs:
           if [ -t 0 ] && [ -t 1 ]; then
             codex_cmd=(codex "$CODEX_PROMPT")
           else
-            codex_cmd=(codex exec "$CODEX_PROMPT")
+            codex_cmd=(codex exec --skip-git-repo-check "$CODEX_PROMPT")
           fi
 
           echo "Attempting: ${codex_cmd[*]}"
