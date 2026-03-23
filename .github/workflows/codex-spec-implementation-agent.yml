@@ -116,7 +116,7 @@ jobs:
           if [ -t 0 ] && [ -t 1 ]; then
             codex_cmd=(codex "$normalized_prompt")
           else
-            codex_cmd=(codex exec --skip-git-repo-check "$normalized_prompt")
+            codex_cmd=(codex exec --skip-git-repo-check --full-auto --sandbox workspace-write "$normalized_prompt")
           fi
 
           echo "Codex command: ${codex_cmd[*]}"
