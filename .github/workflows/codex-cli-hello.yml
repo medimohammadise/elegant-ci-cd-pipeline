@@ -64,6 +64,8 @@ jobs:
 
           if [ "$codex_status" -eq 0 ]; then
             echo "Codex CLI executed successfully."
+            echo "Codex CLI response:"
+            echo "$codex_output"
           else
             echo "Codex CLI execution failed. Please ensure the Codex CLI is installed and configured correctly."
             echo "Exact error from Codex CLI:"
