@@ -30,7 +30,7 @@ jobs:
             export CODEX_HOME="$HOME/.codex"
           else
             export CODEX_HOME="$PWD/.codex"
-s          fi
+          fi
           echo "CODEX_HOME=$CODEX_HOME" >> "$GITHUB_ENV"
 
           if command -v codex >/dev/null 2>&1; then
@@ -66,12 +66,10 @@ s          fi
           fi
           normalized_prompt="$CODEX_PROMPT"
 
-          if [[ "$normalized_prompt" == /prompots.* ]]; then
-            normalized_prompt="/prompts.${normalized_prompt#/prompots.}"
-          fi
-
-          if [[ "$normalized_prompt" == /speckit.* ]]; then
-            normalized_prompt="/prompts.${normalized_prompt#/}"
+          if [[ "$normalized_prompt" != /prompts.* ]]; then
+            echo "Invalid prompt format: $normalized_prompt"
+            echo "Use /prompts.<name> format, for example: /prompts.speckit.implement 007"
+            exit 1
           fi
 
           if [[ "$normalized_prompt" == /prompts.speckit.* ]]; then
