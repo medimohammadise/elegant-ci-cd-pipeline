@@ -140,11 +140,29 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          base_ref="${{ github.ref_name }}"
+          remote_base="origin/$base_ref"
+
+          has_worktree_changes=false
           if [ -n "$(git status --porcelain)" ]; then
+            has_worktree_changes=true
+          fi
+
+          ahead_count="$(git rev-list --count "$remote_base..HEAD")"
+          has_ahead_commits=false
+          if [ "$ahead_count" -gt 0 ]; then
+            has_ahead_commits=true
+          fi
+
+          if [ "$has_worktree_changes" = "true" ] || [ "$has_ahead_commits" = "true" ]; then
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
           else
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
           fi
+
+          echo "has_worktree_changes=$has_worktree_changes"
+          echo "has_ahead_commits=$has_ahead_commits"
+          echo "ahead_count=$ahead_count"
 
       - name: Commit, push, and open pull request
         id: create_pr
