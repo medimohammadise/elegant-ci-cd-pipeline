@@ -17,6 +17,7 @@ Contributors should preserve this repository as a reusable GitHub Actions workfl
 - Maintain `docs/` for operator-facing guidance, workflow usage notes, release behavior, and other repository-level documentation.
 - Preserve clear separation between reusable automation behavior, planning artifacts, and validation assets.
 - Update contributor and operator documentation whenever workflow triggers, permissions, inputs, outputs, generated artifacts, or repository conventions change.
+- Document reusable workflow interfaces with explicit tables. Workflow docs should include input tables with `Input`, `Description`, `Required`, and `Default`, and output tables with `Output`, `Description`, and `Required`. If a workflow has no declared `workflow_call` outputs, say so explicitly.
 
 Repository layout reference:
 
@@ -82,6 +83,16 @@ Do not invent new labels casually. Reuse the repository's existing label taxonom
 ## Versioning
 
 When changes affect release notes, changelog generation, or version semantics, keep commit messages and PR descriptions clear enough to support downstream automation.
+
+## Workflow Documentation
+
+When editing or adding reusable workflows:
+
+- keep README or operator-facing workflow docs aligned with the current YAML definitions
+- document workflow inputs in a table with `Input`, `Description`, `Required`, and `Default`
+- document workflow outputs in a table with `Output`, `Description`, and `Required`
+- explicitly note when a workflow exposes no declared `workflow_call` outputs
+- avoid presenting local-only or untracked workflow files as if they are committed branch state
 
 ## Agent Guidance
 
