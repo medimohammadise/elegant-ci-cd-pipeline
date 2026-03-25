@@ -87,15 +87,15 @@ jobs:
           fi
 
           labels_json=$(python3 - "$LABELS_CONFIG" <<'PY'
-import json
-import sys
-import yaml
-
-path = sys.argv[1]
-data = yaml.safe_load(open(path)) or {}
-print(json.dumps(data.get('labels', [])))
-PY
-)
+          import json
+          import sys
+          import yaml
+          
+          path = sys.argv[1]
+          data = yaml.safe_load(open(path)) or {}
+          print(json.dumps(data.get('labels', [])))
+          PY
+          )
 
           # ----------------------------------------------------------------
           # Helper: ensure a label exists in the repo (create if absent)
