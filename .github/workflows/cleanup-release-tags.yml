@@ -1,0 +1,146 @@
+name: Delete old releases and tags
+
+on:
+  workflow_call:
+    inputs:
+      older_than_days:
+        description: "Delete releases/tags older than this many days"
+        required: true
+        type: number
+      dry_run:
+        description: "If true, only print what would be deleted"
+        required: false
+        type: boolean
+        default: true
+      delete_drafts:
+        description: "Include draft releases"
+        required: false
+        type: boolean
+        default: true
+      delete_prereleases:
+        description: "Include prereleases"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate inputs and compute cutoff date
+        id: validate
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const olderThanDays = Number(${{ inputs.older_than_days }});
+            if (!Number.isFinite(olderThanDays) || olderThanDays < 0) {
+              core.setFailed(`Invalid older_than_days: ${olderThanDays}`);
+              return;
+            }
+            const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
+            core.info(`Cutoff date: ${cutoff.toISOString()}`);
+            core.info(`Dry run: ${{ inputs.dry_run }}`);
+            core.setOutput('cutoff', cutoff.toISOString());
+
+      - name: Delete stale releases and their paired tags
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const cutoff = new Date('${{ steps.validate.outputs.cutoff }}');
+            const dryRun = ${{ inputs.dry_run }};
+            const deleteDrafts = ${{ inputs.delete_drafts }};
+            const deletePrereleases = ${{ inputs.delete_prereleases }};
+            const { owner, repo } = context.repo;
+
+            const releases = await github.paginate(github.rest.repos.listReleases, {
+              owner, repo, per_page: 100
+            });
+
+            const candidates = releases.filter((r) => {
+              if (r.draft && !deleteDrafts) return false;
+              if (r.prerelease && !deletePrereleases) return false;
+              return new Date(r.created_at) < cutoff;
+            });
+
+            core.info(`${releases.length} total releases — ${candidates.length} matched for deletion`);
+
+            for (const release of candidates) {
+              const info = `release_id=${release.id}, tag=${release.tag_name}, created_at=${release.created_at}`;
+
+              if (dryRun) {
+                core.info(`[DRY RUN] Would delete release: ${info}`);
+                core.info(`[DRY RUN] Would delete paired tag: tags/${release.tag_name}`);
+                continue;
+              }
+
+              try {
+                await github.rest.repos.deleteRelease({ owner, repo, release_id: release.id });
+                core.info(`Deleted release: ${info}`);
+              } catch (err) {
+                core.warning(`Failed to delete release ${release.id}: ${err.message}`);
+                continue;
+              }
+
+              try {
+                await github.rest.git.deleteRef({ owner, repo, ref: `tags/${release.tag_name}` });
+                core.info(`Deleted paired tag: tags/${release.tag_name}`);
+              } catch (err) {
+                core.warning(`Failed to delete tag ${release.tag_name}: ${err.message}`);
+              }
+            }
+
+      - name: Delete orphaned tags with no matching release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const cutoff = new Date('${{ steps.validate.outputs.cutoff }}');
+            const dryRun = ${{ inputs.dry_run }};
+            const { owner, repo } = context.repo;
+
+            const [allTags, releases] = await Promise.all([
+              github.paginate(github.rest.repos.listTags, { owner, repo, per_page: 100 }),
+              github.paginate(github.rest.repos.listReleases, { owner, repo, per_page: 100 })
+            ]);
+
+            const releasedTagNames = new Set(releases.map((r) => r.tag_name));
+            const orphans = allTags.filter((t) => !releasedTagNames.has(t.name));
+
+            core.info(`${allTags.length} total tags — ${orphans.length} orphaned (no matching release)`);
+
+            for (const tag of orphans) {
+              let tagDate;
+              try {
+                const ref = await github.rest.git.getRef({ owner, repo, ref: `tags/${tag.name}` });
+                const { type, sha } = ref.data.object;
+                if (type === 'tag') {
+                  // Annotated tag — use the tagger date embedded in the tag object
+                  const obj = await github.rest.git.getTag({ owner, repo, tag_sha: sha });
+                  tagDate = new Date(obj.data.tagger.date);
+                } else {
+                  // Lightweight tag — fall back to the pointed commit's date
+                  const commit = await github.rest.git.getCommit({ owner, repo, commit_sha: sha });
+                  tagDate = new Date(commit.data.committer.date);
+                }
+              } catch (err) {
+                core.warning(`Could not resolve date for tag ${tag.name}: ${err.message} — skipping`);
+                continue;
+              }
+
+              if (tagDate >= cutoff) continue;
+
+              if (dryRun) {
+                core.info(`[DRY RUN] Would delete orphaned tag: ${tag.name} (dated ${tagDate.toISOString()})`);
+                continue;
+              }
+
+              try {
+                await github.rest.git.deleteRef({ owner, repo, ref: `tags/${tag.name}` });
+                core.info(`Deleted orphaned tag: ${tag.name} (dated ${tagDate.toISOString()})`);
+              } catch (err) {
+                core.warning(`Failed to delete orphaned tag ${tag.name}: ${err.message}`);
+              }
+            }

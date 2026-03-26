@@ -1,4 +1,4 @@
-name: GitHub Actions Cleanup
+name: delete old/failed workflow runs
 
 on:
   workflow_dispatch:
@@ -47,7 +47,7 @@ on:
 
 permissions:
   actions: write
-  contents: read
+  contents: write
 
 jobs:
   cleanup:
