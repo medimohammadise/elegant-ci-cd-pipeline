@@ -244,7 +244,7 @@ Typical usage from another repository:
 ```yaml
 jobs:
   release_notes:
-    uses: your-org/elegant-ci-cd-pipeline/.github/workflows/reusable-release-notes.yml@main
+    uses: your-org/elegant-ci-cd-pipeline/.github/workflows/release-notes.yml@main
     with:
       base_branch: main
 

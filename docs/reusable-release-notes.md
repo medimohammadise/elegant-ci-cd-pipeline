@@ -27,7 +27,7 @@ The workflow emits:
 ```yaml
 jobs:
   release_notes:
-    uses: your-org/your-repo/.github/workflows/reusable-release-notes.yml@main
+    uses: your-org/your-repo/.github/workflows/release-notes.yml@main
     with:
       base_branch: main
       category_rules: >-
