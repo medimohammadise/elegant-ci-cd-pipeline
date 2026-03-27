@@ -29,3 +29,7 @@ jobs:
         env:
           DT_URL: http://myserver:8181
           DT_API_KEY: ${{ secrets.DT_API_KEY }}
+  watchdog:
+    uses: ./.github/workflows/general-util-watchdog.yml
+    permissions:
+      actions: write

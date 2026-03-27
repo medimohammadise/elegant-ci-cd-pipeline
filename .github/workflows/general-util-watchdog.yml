@@ -1,0 +1,30 @@
+name: Util - Watchdog
+
+on:
+  workflow_call:
+    inputs:
+      wait-minutes:
+        description: 'Minutes to wait before cancelling the workflow run'
+        type: number
+        default: 5
+        required: false
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Wait ${{ inputs.wait-minutes }} minute(s)
+        run: sleep $(( ${{ inputs.wait-minutes }} * 60 ))
+
+      - name: Cancel workflow if self-hosted job did not start
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run_id = process.env.GITHUB_RUN_ID;
+            await github.rest.actions.cancelWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id
+            });

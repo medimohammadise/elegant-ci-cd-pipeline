@@ -38,3 +38,9 @@ jobs:
           upload-result: false
           # quick-fixes available in Ultimate and Ultimate Plus plans
           push-fixes: 'none'
+  watchdog:
+    uses: ./.github/workflows/general-util-watchdog.yml
+    with:
+         wait-minutes: 15
+    permissions:
+      actions: write
