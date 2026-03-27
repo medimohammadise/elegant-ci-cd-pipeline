@@ -1,0 +1,31 @@
+name: Dependency track & SBOM upload
+
+on:
+  workflow_call:
+
+jobs:
+  sbom-upload:
+    name: Upload SBOM to Dependency-Track
+    runs-on: self-hosted
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ vars.JAVA_VERSION }}
+          distribution: temurin
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Generate SBOM
+        run: ./gradlew generateSbom
+
+      - name: Upload SBOM to Dependency-Track
+        run: ./gradlew uploadSbom
+        env:
+          DT_URL: http://myserver:8181
+          DT_API_KEY: ${{ secrets.DT_API_KEY }}
