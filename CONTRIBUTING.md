@@ -84,6 +84,55 @@ Do not invent new labels casually. Reuse the repository's existing label taxonom
 
 When changes affect release notes, changelog generation, or version semantics, keep commit messages and PR descriptions clear enough to support downstream automation.
 
+## Scripting Language Guidelines
+
+Inline workflow logic can be written in several ways. Choose based on what the step needs to do:
+
+### Bash (`run:` steps)
+Use for simple shell operations: file manipulation, environment variable wiring, invoking CLI tools, or glue between steps.
+
+```yaml
+- run: echo "TAG=$(git describe --tags --abbrev=0)" >> "$GITHUB_ENV"
+```
+
+Avoid Bash for anything requiring HTTP calls, JSON parsing beyond `jq` one-liners, or multi-branch logic — it becomes hard to read and test quickly.
+
+### JavaScript via `actions/github-script` (`uses: actions/github-script`)
+Use when the step needs the GitHub API (`github.rest.*`), access to workflow context (`context`), or logic complex enough to benefit from a real language (loops, maps, error handling).
+
+```yaml
+- uses: actions/github-script@v8
+  with:
+    script: |
+      const { data } = await github.rest.pulls.list({ owner, repo, state: "closed" });
+```
+
+This is plain Node.js — no TypeScript, no imports from `node_modules` beyond what the runner provides (`node:child_process`, etc.).
+
+**Structure guidelines for non-trivial scripts:**
+- Extract each logical phase into a named function (git ops, API calls, classification, output emission).
+- Keep the top-level execution block short — it should read as a pipeline of function calls.
+- Pass dependencies explicitly into functions; avoid relying on closure over globals.
+
+### Pre-compiled JavaScript action (`using: node20`)
+Use when the script is large enough that inline YAML becomes hard to review, needs `npm` dependencies, or should be versioned and reused across multiple workflows. TypeScript is supported but must be compiled to `dist/index.js` before the action runs.
+
+Place the action under `.github/actions/<name>/` and reference it as `uses: ./.github/actions/<name>`.
+
+### Docker action (`using: docker`)
+Use when the logic is better expressed in another language (Python, Go, etc.), requires a specific runtime or system dependency, or is complex enough to warrant a proper project structure with tests.
+
+Place the action under `.github/actions/<name>/` with a `Dockerfile` and reference it as `uses: ./.github/actions/<name>`.
+
+### Decision summary
+
+| Need | Preferred approach |
+|---|---|
+| Shell glue, CLI invocation | Bash `run:` step |
+| GitHub API calls + moderate logic | `actions/github-script` (inline JS) |
+| Large script, needs npm packages | Pre-compiled JS action |
+| Non-JS language or complex runtime | Docker action |
+
 ## Workflow Documentation
 
 When editing or adding reusable workflows:
