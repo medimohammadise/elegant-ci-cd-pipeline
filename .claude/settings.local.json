@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.specify/scripts/bash/create-new-feature.sh \"I would like to check what is the best practice for keeping used versions in this project for example we have actions/checkout in so many places as version 4 now new version according to dependency bump is 6 I want to have a centralized approach to keep them in sync\" --json --short-name \"centralize-action-versions\" \"Centralize GitHub Actions Version Management\")",
+      "Bash(.specify/scripts/bash/setup-plan.sh --json)",
+      "Bash(.specify/scripts/bash/update-agent-context.sh claude:*)",
+      "Bash(.specify/scripts/bash/check-prerequisites.sh --json)",
+      "Bash(.specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks)",
+      "Bash(wc -l grep -E \"- \\\\[x\\\\]|- \\\\[X\\\\]\" /Users/mehdi/MyProject/elegant-ci-cd-pipeline/specs/009-centralize-action-versions/checklists/requirements.md)",
+      "Bash(grep -h \"uses:\" .github/workflows/*.yml)",
+      "Bash(chmod:*)",
+      "Bash(bash .specify/scripts/bash/check-action-versions.sh --strict)"
+    ]
+  }
+}

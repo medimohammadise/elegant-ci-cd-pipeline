@@ -1,0 +1,93 @@
+# actions-versions.yml
+#
+# Single source of truth for approved GitHub Actions versions used across
+# all workflow files in this repository.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# HOW TO USE THIS FILE
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Adding a new action:
+#   1. Add an entry below with the action key (owner/repo or owner/repo/subpath)
+#      and its approved version tag.
+#   2. Add a brief description so contributors know what the action does.
+#   3. Use that same version in your workflow file: `uses: owner/action@<version>`
+#   4. Run the drift check locally to confirm alignment:
+#        bash .specify/scripts/bash/check-action-versions.sh --strict
+#
+# Updating an existing action version (e.g., via a Dependabot PR):
+#   Dependabot updates the version in workflow files automatically.
+#   You must ALSO update the version here in the same PR so the CI drift
+#   check passes. Steps:
+#   1. Update the version value below to match what Dependabot set in workflows.
+#   2. Run the drift check locally:
+#        bash .specify/scripts/bash/check-action-versions.sh --strict
+#   3. Push both changes together in the Dependabot PR.
+#
+# Running the drift check locally:
+#   bash .specify/scripts/bash/check-action-versions.sh
+#   bash .specify/scripts/bash/check-action-versions.sh --strict   # fail on unregistered
+#
+# CI enforcement:
+#   The ci-action-version-drift.yml workflow runs this check automatically
+#   on every pull request that modifies .github/**.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+actions:
+
+  # ── GitHub Actions (official) ────────────────────────────────────────────
+
+  actions/checkout:
+    version: v6
+    description: Check out repository source code
+
+  actions/setup-java:
+    version: v5
+    description: Set up a Java/JDK environment for Gradle builds
+
+  actions/github-script:
+    version: v8
+    description: Run inline Node.js scripts against the GitHub API
+
+  actions/upload-artifact:
+    version: v7
+    description: Upload build artifacts (test reports, JARs) for later download
+
+  actions/attest-build-provenance:
+    version: v4
+    description: Generate signed SLSA provenance attestations for build artifacts
+
+  # ── Docker ───────────────────────────────────────────────────────────────
+
+  docker/setup-buildx-action:
+    version: v4
+    description: Set up Docker Buildx for multi-platform image builds
+
+  docker/login-action:
+    version: v4
+    description: Authenticate to a container registry (GHCR, ECR, etc.)
+
+  docker/metadata-action:
+    version: v6
+    description: Extract Docker image metadata (tags, labels) from git context
+
+  docker/build-push-action:
+    version: v7
+    description: Build and push Docker images using Buildx
+
+  # ── Gradle ───────────────────────────────────────────────────────────────
+
+  gradle/actions/setup-gradle:
+    version: v6
+    description: Set up Gradle with caching for faster CI builds
+
+  # ── Third-party ──────────────────────────────────────────────────────────
+
+  peter-evans/create-pull-request:
+    version: v8
+    description: Open a pull request from automated changes (e.g., Codex agent output)
+
+  JetBrains/qodana-action:
+    version: v2025.3.2
+    description: Run JetBrains Qodana static code analysis and quality gate
