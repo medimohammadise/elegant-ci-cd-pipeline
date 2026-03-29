@@ -1,0 +1,58 @@
+name: CI - Action Version Drift Check
+
+on:
+  pull_request:
+    paths:
+      - ".github/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-action-versions:
+    name: Validate action versions against manifest
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Run action version drift check
+        id: drift-check
+        run: |
+          bash .specify/scripts/bash/check-action-versions.sh --strict \
+            --manifest .github/actions-versions.yml \
+            --workflows-dir .github/workflows \
+            | tee /tmp/drift-report.txt
+        continue-on-error: true
+
+      - name: Write drift report to step summary
+        if: always()
+        run: |
+          echo "## Action Version Drift Report" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if cat /tmp/drift-report.txt | grep -q "DRIFT DETECTED\|UNREGISTERED"; then
+            echo "❌ **Drift detected** — workflow files are out of sync with \`.github/actions-versions.yml\`" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "✅ **All action versions aligned** with \`.github/actions-versions.yml\`" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/drift-report.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail if drift detected
+        if: steps.drift-check.outcome == 'failure'
+        run: |
+          echo ""
+          echo "One or more action versions in workflow files do not match"
+          echo "the approved versions in .github/actions-versions.yml"
+          echo ""
+          echo "To resolve:"
+          echo "  1. Update .github/actions-versions.yml to match the versions"
+          echo "     that Dependabot set in the workflow files, OR"
+          echo "  2. Update the workflow files to use the versions in the manifest."
+          echo ""
+          echo "Run locally: bash .specify/scripts/bash/check-action-versions.sh --strict"
+          exit 1

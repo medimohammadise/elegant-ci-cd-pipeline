@@ -43,6 +43,7 @@ All workflows expose a `workflow_call` interface with explicit inputs, outputs, 
 | `cleanup-github-workflows.yml` | Delete failed/old workflow runs |
 | `cleanup-release-tags.yml` | Delete stale releases+paired tags, then orphaned tags (tags with no release) |
 | `codex-spec-implementation-agent.yml` | Run Codex CLI on self-hosted runner to implement specs and open PRs |
+| `ci-action-version-drift.yml` | Validate all workflow `uses:` versions match `.github/actions-versions.yml` on PRs touching `.github/**` |
 
 ### Spec Kit (`specs/` and `.specify/`)
 Features are tracked in `specs/NNN-feature-name/` with spec, plan, tasks, and checklist files. `.specify/templates/` holds the Markdown templates for each artifact type. `.specify/scripts/bash/` contains helpers to scaffold new features. The `codex-spec-implementation-agent.yml` workflow drives automated implementation via Codex CLI.
@@ -70,3 +71,6 @@ When writing or updating workflow docs in `docs/`, document inputs and outputs i
 |---|---|
 
 Explicitly note when a workflow has no declared `workflow_call` outputs.
+
+## Recent Changes
+- 009-centralize-action-versions: Added [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
