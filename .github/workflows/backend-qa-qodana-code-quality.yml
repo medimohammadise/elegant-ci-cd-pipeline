@@ -6,10 +6,6 @@
 name: Qodana
 on:
   workflow_call:
-  pull_request:
-  push:
-    branches:
-      - main
 
 jobs:
   qodana:
