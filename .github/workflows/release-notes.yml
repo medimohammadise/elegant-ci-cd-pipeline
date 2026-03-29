@@ -477,7 +477,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Create release tag and GitHub Release
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           NEXT_VERSION: ${{ needs.generate.outputs.next_version }}
           RELEASE_NOTES_MARKDOWN: ${{ needs.generate.outputs.release_notes_markdown }}

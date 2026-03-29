@@ -28,7 +28,7 @@ jobs:
       LANGUAGE: C
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -179,7 +179,7 @@ jobs:
       - name: Commit, push, and open pull request
         id: create_pr
         if: steps.detect_changes.outputs.has_changes == 'true'
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           base: ${{ github.ref_name }}
