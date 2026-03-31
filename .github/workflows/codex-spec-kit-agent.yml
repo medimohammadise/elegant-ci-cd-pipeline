@@ -1,4 +1,4 @@
-name: Codex Spec Implement Agent
+name: Codex Spec Kit Agent
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
       prompt:
         description: Prompt sent to Codex CLI
         required: false
-        default: /prompts.speckit.implement 004 do not ask question and decide yourself session should be non-interactive and commands are allowed
+        default: $speckit.specify Example feature request from workflow dispatch
         type: string
   workflow_call:
     inputs:
@@ -14,14 +14,24 @@ on:
         description: Prompt sent to Codex CLI
         required: false
         type: string
+    outputs:
+      final_feedback:
+        description: Final non-empty line returned by the Codex CLI run
+        value: ${{ jobs.codex-spec-kit.outputs.final_feedback }}
+      pull_request_url:
+        description: Pull request URL created by the workflow when changes were produced
+        value: ${{ jobs.codex-spec-kit.outputs.pull_request_url }}
 
 permissions:
   contents: write
   pull-requests: write
 
 jobs:
-  codex-spec-implement:
+  codex-spec-kit:
     runs-on: self-hosted
+    outputs:
+      final_feedback: ${{ steps.run_codex.outputs.final_feedback }}
+      pull_request_url: ${{ steps.create_pr.outputs.pull-request-url }}
     env:
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
@@ -73,10 +83,10 @@ jobs:
           which codex
           codex --version
 
-      - name: Run Codex Spec Implement (non-interactive)
+      - name: Run Codex Spec Kit (non-interactive)
         id: run_codex
         env:
-          CODEX_PROMPT: ${{ inputs.prompt || github.event.inputs.prompt || '/prompts.speckit.implement 004 do not ask question and decide yourself session should be non-interactive and commands are allowed' }}
+          CODEX_PROMPT: ${{ inputs.prompt || github.event.inputs.prompt || '$speckit.specify Example feature request from workflow dispatch' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -99,22 +109,10 @@ jobs:
           echo "Resolved prompt: $normalized_prompt"
           echo "Using CODEX_HOME: $CODEX_HOME"
 
-          if [[ "$normalized_prompt" != /prompts.* ]]; then
+          if [[ "$normalized_prompt" != \$speckit.* ]]; then
             echo "Invalid prompt format: $normalized_prompt"
-            echo "Use /prompts.<name> format, for example: /prompts.speckit.implement 007"
+            echo 'Use $speckit.<name> format, for example: $speckit.specify Add user authentication'
             exit 1
-          fi
-
-          if [[ "$normalized_prompt" == /prompts.speckit.* ]]; then
-            prompt_name="${normalized_prompt#/prompts.}"
-            prompt_name="${prompt_name%% *}"
-            prompt_file="$CODEX_HOME/prompts/${prompt_name}.md"
-
-            if [ ! -f "$prompt_file" ]; then
-              echo "Missing Spec Kit prompt: $prompt_file"
-              echo "Current CODEX_HOME: $CODEX_HOME"
-              exit 1
-            fi
           fi
 
           if [ -t 0 ] && [ -t 1 ]; then
@@ -172,10 +170,6 @@ jobs:
           echo "has_ahead_commits=$has_ahead_commits" >> "$GITHUB_OUTPUT"
           echo "ahead_count=$ahead_count" >> "$GITHUB_OUTPUT"
 
-          echo "has_worktree_changes=$has_worktree_changes"
-          echo "has_ahead_commits=$has_ahead_commits"
-          echo "ahead_count=$ahead_count"
-
       - name: Commit, push, and open pull request
         id: create_pr
         if: steps.detect_changes.outputs.has_changes == 'true'
@@ -183,15 +177,15 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           base: ${{ github.ref_name }}
-          branch: codex/spec-implement-${{ github.run_id }}
+          branch: codex/spec-kit-${{ github.run_id }}
           delete-branch: true
-          commit-message: "feat: apply Codex Spec Implement updates"
-          title: "Codex Spec Implement updates (run ${{ github.run_id }})"
+          commit-message: "feat: apply Codex Spec Kit updates"
+          title: "Codex Spec Kit updates (run ${{ github.run_id }})"
           body: |
-            Automated changes from Codex Spec Implement workflow.
+            Automated changes from Codex Spec Kit workflow.
 
             Prompt:
-            `${{ inputs.prompt || github.event.inputs.prompt || '/prompts.speckit.implement 004 do not ask question and decide yourself session should be non-interactive and commands are allowed' }}`
+            `${{ inputs.prompt || github.event.inputs.prompt || '$speckit.specify Example feature request from workflow dispatch' }}`
 
       - name: Print PR result
         env:
@@ -200,7 +194,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ steps.detect_changes.outputs.has_changes }}" != "true" ]; then
-            echo "No pull request created because working tree changes were '${{ steps.detect_changes.outputs.has_worktree_changes }}' and ahead commits were '${{ steps.detect_changes.outputs.has_ahead_commits }}' (ahead_count=${{ steps.detect_changes.outputs.ahead_count }})."
+            echo "No pull request created because the Codex Spec Kit run did not produce repository changes."
             if [ -n "$CODEX_FINAL_FEEDBACK" ]; then
               echo "Codex final feedback: $CODEX_FINAL_FEEDBACK"
             fi
