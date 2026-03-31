@@ -1,0 +1,233 @@
+name: Issue Codex Spec Automation
+
+on:
+  issues:
+    types:
+      - opened
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Issue number to process for manual validation
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: issue-spec-automation-${{ github.event.issue.number || github.event.inputs.issue_number }}
+  cancel-in-progress: false
+
+jobs:
+  evaluate:
+    name: Evaluate issue for Spec Kit handoff
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ steps.evaluate.outputs.status }}
+      message: ${{ steps.evaluate.outputs.message }}
+      prompt_ref: ${{ steps.evaluate.outputs.prompt_ref }}
+      prompt: ${{ steps.evaluate.outputs.prompt }}
+      issue_number: ${{ steps.evaluate.outputs.issue_number }}
+
+    steps:
+      - name: Evaluate issue body and build prompt
+        id: evaluate
+        uses: actions/github-script@v8
+        env:
+          DISPATCH_ISSUE_NUMBER: ${{ github.event.inputs.issue_number || '' }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            async function loadIssue() {
+              if (context.eventName === "issues") {
+                return context.payload.issue;
+              }
+
+              const issueNumber = Number(process.env.DISPATCH_ISSUE_NUMBER || "");
+              if (!issueNumber) {
+                throw new Error("workflow_dispatch requires a numeric issue_number input");
+              }
+
+              const response = await github.rest.issues.get({
+                owner,
+                repo,
+                issue_number: issueNumber,
+              });
+
+              return response.data;
+            }
+
+            function normalizeBody(body) {
+              return (body || "")
+                .replace(/\r/g, "")
+                .replace(/[ \t]+\n/g, "\n")
+                .trim();
+            }
+
+            function isEligible(body) {
+              const normalized = normalizeBody(body);
+              const words = normalized.split(/\s+/).filter(Boolean);
+              const placeholderPatterns = [
+                /please describe/i,
+                /replace this/i,
+                /tbd/i,
+                /todo/i,
+                /\?\?\?/,
+                /<.*?>/,
+              ];
+
+              if (normalized.length < 80) {
+                return {
+                  eligible: false,
+                  reason: "Issue body does not contain enough feature detail to generate a reliable specification.",
+                };
+              }
+
+              if (words.length < 15) {
+                return {
+                  eligible: false,
+                  reason: "Issue body is too short to infer scope, behavior, and acceptance details.",
+                };
+              }
+
+              if (placeholderPatterns.some((pattern) => pattern.test(normalized))) {
+                return {
+                  eligible: false,
+                  reason: "Issue body appears to contain placeholder or unfinished template text instead of a complete feature request.",
+                };
+              }
+
+              return { eligible: true, reason: "" };
+            }
+
+            const issue = await loadIssue();
+            const existingComments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number: issue.number,
+              per_page: 100,
+            });
+
+            const existingStartedComment = existingComments.find((comment) =>
+              comment.body && comment.body.includes(`<!-- issue-spec-automation:issue=${issue.number};status=handoff_started;`)
+            );
+
+            let status = "skipped";
+            let message = "";
+            let promptRef = "";
+            let prompt = "";
+
+            if (existingStartedComment) {
+              message = `Issue already has a recorded Spec Kit handoff in comment ${existingStartedComment.html_url}.`;
+            } else {
+              const eligibility = isEligible(issue.body || "");
+              if (!eligibility.eligible) {
+                message = eligibility.reason;
+              } else {
+                status = "ready";
+                promptRef = `issue-spec-${issue.number}-${context.runId}`;
+                prompt = `$speckit.specify ${normalizeBody(issue.body || "")}`;
+                message = "Issue contained sufficient feature detail. Starting codex-spec-kit-agent.yml.";
+              }
+            }
+
+            core.setOutput("status", status);
+            core.setOutput("message", message);
+            core.setOutput("prompt_ref", promptRef);
+            core.setOutput("prompt", prompt);
+            core.setOutput("issue_number", String(issue.number));
+
+  handoff:
+    name: Call Codex Spec Kit workflow
+    needs: evaluate
+    if: needs.evaluate.outputs.status == 'ready'
+    uses: ./.github/workflows/codex-spec-kit-agent.yml
+    secrets: inherit
+    with:
+      prompt: ${{ needs.evaluate.outputs.prompt }}
+
+  report:
+    name: Record issue outcome
+    runs-on: ubuntu-latest
+    needs:
+      - evaluate
+      - handoff
+    if: always()
+    outputs:
+      status: ${{ steps.report.outputs.status }}
+      message: ${{ steps.report.outputs.message }}
+      prompt_ref: ${{ steps.report.outputs.prompt_ref }}
+      downstream_workflow: ${{ steps.report.outputs.downstream_workflow }}
+
+    steps:
+      - name: Publish visible issue outcome
+        id: report
+        uses: actions/github-script@v8
+        env:
+          DISPATCH_ISSUE_NUMBER: ${{ github.event.issue.number || github.event.inputs.issue_number || '' }}
+          EVALUATE_STATUS: ${{ needs.evaluate.outputs.status }}
+          EVALUATE_MESSAGE: ${{ needs.evaluate.outputs.message }}
+          PROMPT_REF: ${{ needs.evaluate.outputs.prompt_ref }}
+          HANDOFF_RESULT: ${{ needs.handoff.result || 'skipped' }}
+          DOWNSTREAM_WORKFLOW: .github/workflows/codex-spec-kit-agent.yml
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issueNumber = Number(process.env.DISPATCH_ISSUE_NUMBER || "");
+
+            if (!issueNumber) {
+              throw new Error("Missing issue number for issue outcome reporting");
+            }
+
+            let status = process.env.EVALUATE_STATUS;
+            let message = process.env.EVALUATE_MESSAGE;
+            const promptRef = process.env.PROMPT_REF || "";
+            const downstreamWorkflow = process.env.DOWNSTREAM_WORKFLOW;
+            const handoffResult = process.env.HANDOFF_RESULT;
+
+            if (status === "ready") {
+              if (handoffResult === "success") {
+                status = "handoff_started";
+                message = "Started codex-spec-kit-agent.yml with $speckit.specify built from the issue body.";
+              } else {
+                status = "failed";
+                message = `Failed to start codex-spec-kit-agent.yml (job result: ${handoffResult}).`;
+              }
+            }
+
+            const lines = [];
+            if (status === "handoff_started") {
+              lines.push(`<!-- issue-spec-automation:issue=${issueNumber};status=${status};prompt_ref=${promptRef} -->`);
+            }
+            lines.push("## Issue Spec Automation");
+            lines.push("");
+            lines.push(`- Status: \`${status}\``);
+            lines.push(`- Message: ${message}`);
+            if (promptRef) {
+              lines.push(`- Prompt Ref: \`${promptRef}\``);
+            }
+            lines.push(`- Downstream Workflow: \`${downstreamWorkflow}\``);
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: issueNumber,
+              body: lines.join("\n"),
+            });
+
+            core.setOutput("status", status);
+            core.setOutput("message", message);
+            core.setOutput("prompt_ref", promptRef);
+            core.setOutput("downstream_workflow", downstreamWorkflow);
+
+      - name: Fail workflow if handoff failed
+        if: steps.report.outputs.status == 'failed'
+        shell: bash
+        run: |
+          echo "${{ steps.report.outputs.message }}"
+          exit 1
