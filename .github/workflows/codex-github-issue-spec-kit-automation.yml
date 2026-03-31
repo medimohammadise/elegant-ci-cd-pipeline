@@ -4,6 +4,8 @@ on:
   issues:
     types:
       - opened
+      - edited
+      - milestoned
   workflow_dispatch:
     inputs:
       issue_number:
