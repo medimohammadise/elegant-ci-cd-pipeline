@@ -42,6 +42,11 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
+            function preview(text, limit = 240) {
+              if (!text) return "";
+              return text.length > limit ? `${text.slice(0, limit)}...` : text;
+            }
+
             async function loadIssue() {
               if (context.eventName === "issues") {
                 return context.payload.issue;
@@ -79,10 +84,16 @@ jobs:
                 /\?\?\?/,
                 /<.*?>/,
               ];
+              const placeholderMatches = placeholderPatterns
+                .filter((pattern) => pattern.test(normalized))
+                .map((pattern) => pattern.toString());
 
               if (normalized.length < 80) {
                 return {
                   eligible: false,
+                  normalizedLength: normalized.length,
+                  wordCount: words.length,
+                  placeholderMatches,
                   reason: "Issue body does not contain enough feature detail to generate a reliable specification.",
                 };
               }
@@ -90,27 +101,60 @@ jobs:
               if (words.length < 15) {
                 return {
                   eligible: false,
+                  normalizedLength: normalized.length,
+                  wordCount: words.length,
+                  placeholderMatches,
                   reason: "Issue body is too short to infer scope, behavior, and acceptance details.",
                 };
               }
 
-              if (placeholderPatterns.some((pattern) => pattern.test(normalized))) {
+              if (placeholderMatches.length > 0) {
                 return {
                   eligible: false,
+                  normalizedLength: normalized.length,
+                  wordCount: words.length,
+                  placeholderMatches,
                   reason: "Issue body appears to contain placeholder or unfinished template text instead of a complete feature request.",
                 };
               }
 
-              return { eligible: true, reason: "" };
+              return {
+                eligible: true,
+                normalizedLength: normalized.length,
+                wordCount: words.length,
+                placeholderMatches,
+                reason: "",
+              };
             }
 
             const issue = await loadIssue();
+            const normalizedBody = normalizeBody(issue.body || "");
+            const eligibility = isEligible(issue.body || "");
+
+            core.info(`Issue Spec Automation evaluate step started for issue #${issue.number}`);
+            core.info(`Event name: ${context.eventName}`);
+            core.info(`Issue title: ${issue.title || "(empty title)"}`);
+            core.info(`Issue URL: ${issue.html_url || "(missing url)"}`);
+            core.info(`Issue body raw length: ${(issue.body || "").length}`);
+            core.info(`Issue body normalized length: ${eligibility.normalizedLength}`);
+            core.info(`Issue body word count: ${eligibility.wordCount}`);
+            core.info(`Issue body preview: ${preview(normalizedBody) || "(empty body)"}`);
+            core.info(
+              `Placeholder pattern matches: ${
+                eligibility.placeholderMatches.length > 0
+                  ? eligibility.placeholderMatches.join(", ")
+                  : "none"
+              }`
+            );
+
             const existingComments = await github.paginate(github.rest.issues.listComments, {
               owner,
               repo,
               issue_number: issue.number,
               per_page: 100,
             });
+
+            core.info(`Existing issue comment count: ${existingComments.length}`);
 
             const existingStartedComment = existingComments.find((comment) =>
               comment.body && comment.body.includes(`<!-- issue-spec-automation:issue=${issue.number};status=handoff_started;`)
@@ -122,18 +166,24 @@ jobs:
             let prompt = "";
 
             if (existingStartedComment) {
+              core.warning(`Skipping issue #${issue.number} because an existing handoff marker was found in comment ${existingStartedComment.html_url}`);
               message = `Issue already has a recorded Spec Kit handoff in comment ${existingStartedComment.html_url}.`;
             } else {
-              const eligibility = isEligible(issue.body || "");
               if (!eligibility.eligible) {
+                core.warning(`Skipping issue #${issue.number} due to eligibility failure: ${eligibility.reason}`);
                 message = eligibility.reason;
               } else {
                 status = "ready";
                 promptRef = `issue-spec-${issue.number}-${context.runId}`;
-                prompt = `$speckit.specify ${normalizeBody(issue.body || "")}`;
+                prompt = `$speckit.specify ${normalizedBody}`;
+                core.info(`Issue #${issue.number} is eligible. Prompt ref: ${promptRef}`);
+                core.info(`Resolved command input: ${preview(prompt, 320)}`);
                 message = "Issue contained sufficient feature detail. Starting codex-spec-kit-agent.yml.";
               }
             }
+
+            core.info(`Final evaluate status for issue #${issue.number}: ${status}`);
+            core.info(`Final evaluate message: ${message}`);
 
             core.setOutput("status", status);
             core.setOutput("message", message);
