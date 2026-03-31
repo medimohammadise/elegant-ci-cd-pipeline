@@ -1,4 +1,4 @@
-name: Codex Spec Implement Agent
+name: Codex Spec Kit Agent
 
 on:
   workflow_dispatch:
@@ -6,7 +6,19 @@ on:
       prompt:
         description: Prompt sent to Codex CLI
         required: false
-        default: /prompts.speckit.implement 004 do not ask question and decide yourself session should be non-interactive and commands are allowed
+        default: $speckit.specify Example feature request from workflow dispatch
+        type: string
+      issue_number:
+        description: Issue number associated with this run
+        required: false
+        type: string
+      source_status:
+        description: Caller status context (project status or issue event fallback)
+        required: false
+        type: string
+      target_repo:
+        description: Target repository for checkout and PR creation (owner/repo)
+        required: false
         type: string
   workflow_call:
     inputs:
@@ -14,14 +26,36 @@ on:
         description: Prompt sent to Codex CLI
         required: false
         type: string
+      issue_number:
+        description: Issue number associated with this run
+        required: false
+        type: string
+      source_status:
+        description: Caller status context (project status or issue event fallback)
+        required: false
+        type: string
+      target_repo:
+        description: Target repository for checkout and PR creation (owner/repo)
+        required: false
+        type: string
+    outputs:
+      final_feedback:
+        description: Final non-empty line returned by the Codex CLI run
+        value: ${{ jobs.codex-spec-kit.outputs.final_feedback }}
+      pull_request_url:
+        description: Pull request URL created by the workflow when changes were produced
+        value: ${{ jobs.codex-spec-kit.outputs.pull_request_url }}
 
 permissions:
   contents: write
   pull-requests: write
 
 jobs:
-  codex-spec-implement:
+  codex-spec-kit:
     runs-on: self-hosted
+    outputs:
+      final_feedback: ${{ steps.run_codex.outputs.final_feedback }}
+      pull_request_url: ${{ steps.create_pr.outputs.pull-request-url }}
     env:
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
@@ -30,6 +64,8 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6
         with:
+          repository: ${{ inputs.target_repo || github.event.inputs.target_repo || github.repository }}
+          token: ${{ secrets.CROSS_REPO_TOKEN || secrets.GITHUB_TOKEN }}
           fetch-depth: 0
 
       - name: Verify Codex CLI is available on runner
@@ -73,10 +109,13 @@ jobs:
           which codex
           codex --version
 
-      - name: Run Codex Spec Implement (non-interactive)
+      - name: Run Codex Spec Kit (non-interactive)
         id: run_codex
         env:
-          CODEX_PROMPT: ${{ inputs.prompt || github.event.inputs.prompt || '/prompts.speckit.implement 004 do not ask question and decide yourself session should be non-interactive and commands are allowed' }}
+          CODEX_PROMPT: ${{ inputs.prompt || github.event.inputs.prompt || '$speckit.specify Example feature request from workflow dispatch' }}
+          ISSUE_NUMBER: ${{ inputs.issue_number || github.event.inputs.issue_number || '' }}
+          SOURCE_STATUS: ${{ inputs.source_status || github.event.inputs.source_status || '' }}
+          TARGET_REPO: ${{ inputs.target_repo || github.event.inputs.target_repo || github.repository }}
         shell: bash
         run: |
           set -euo pipefail
@@ -95,26 +134,43 @@ jobs:
             echo "Repo prompt directory not found in checkout: $PWD/.codex/prompts"
           fi
           normalized_prompt="$CODEX_PROMPT"
-          echo "Workflow input prompt: $CODEX_PROMPT"
-          echo "Resolved prompt: $normalized_prompt"
-          echo "Using CODEX_HOME: $CODEX_HOME"
+          resolved_issue_number="$ISSUE_NUMBER"
+          resolved_source_status="$SOURCE_STATUS"
+          resolved_target_repo="$TARGET_REPO"
 
-          if [[ "$normalized_prompt" != /prompts.* ]]; then
-            echo "Invalid prompt format: $normalized_prompt"
-            echo "Use /prompts.<name> format, for example: /prompts.speckit.implement 007"
-            exit 1
+          if [ -z "$resolved_issue_number" ]; then
+            resolved_issue_number="unknown"
           fi
 
-          if [[ "$normalized_prompt" == /prompts.speckit.* ]]; then
-            prompt_name="${normalized_prompt#/prompts.}"
-            prompt_name="${prompt_name%% *}"
-            prompt_file="$CODEX_HOME/prompts/${prompt_name}.md"
+          if [ -z "$resolved_source_status" ]; then
+            resolved_source_status="manual"
+          fi
 
-            if [ ! -f "$prompt_file" ]; then
-              echo "Missing Spec Kit prompt: $prompt_file"
-              echo "Current CODEX_HOME: $CODEX_HOME"
-              exit 1
-            fi
+          if [ -z "$resolved_target_repo" ]; then
+            resolved_target_repo="${{ github.repository }}"
+          fi
+
+          normalized_status_slug="$(printf '%s' "$resolved_source_status" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
+          if [ -z "$normalized_status_slug" ]; then
+            normalized_status_slug="manual"
+          fi
+
+          pr_title="Codex Spec Kit issue #${resolved_issue_number} (${resolved_source_status})"
+          commit_message="feat(spec-kit): issue #${resolved_issue_number} (${normalized_status_slug})"
+
+          echo "Workflow input prompt: $CODEX_PROMPT"
+          echo "Resolved prompt: $normalized_prompt"
+          echo "Resolved issue number: $resolved_issue_number"
+          echo "Resolved source status: $resolved_source_status"
+          echo "Resolved target repository: $resolved_target_repo"
+          echo "Computed PR title: $pr_title"
+          echo "Computed commit message: $commit_message"
+          echo "Using CODEX_HOME: $CODEX_HOME"
+
+          if [[ "$normalized_prompt" != \$speckit.* ]]; then
+            echo "Invalid prompt format: $normalized_prompt"
+            echo 'Use $speckit.<name> format, for example: $speckit.specify Add user authentication'
+            exit 1
           fi
 
           if [ -t 0 ] && [ -t 1 ]; then
@@ -137,6 +193,11 @@ jobs:
             echo "final_feedback<<EOF" >> "$GITHUB_OUTPUT"
             printf '%s\n' "$codex_final_feedback" >> "$GITHUB_OUTPUT"
             echo "EOF" >> "$GITHUB_OUTPUT"
+            echo "pr_title=$pr_title" >> "$GITHUB_OUTPUT"
+            echo "commit_message=$commit_message" >> "$GITHUB_OUTPUT"
+            echo "issue_number=$resolved_issue_number" >> "$GITHUB_OUTPUT"
+            echo "source_status=$resolved_source_status" >> "$GITHUB_OUTPUT"
+            echo "target_repo=$resolved_target_repo" >> "$GITHUB_OUTPUT"
           else
             echo "Codex CLI execution failed. Please ensure the Codex CLI is installed and configured correctly."
             echo "Exact error from Codex CLI:"
@@ -149,8 +210,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          base_ref="${{ github.ref_name }}"
+          base_ref="$(git rev-parse --abbrev-ref HEAD)"
+          if [ -z "$base_ref" ] || [ "$base_ref" = "HEAD" ]; then
+            base_ref="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"
+          fi
+          if [ -z "$base_ref" ]; then
+            base_ref="main"
+          fi
+
           remote_base="origin/$base_ref"
+          if ! git show-ref --verify --quiet "refs/remotes/$remote_base"; then
+            git fetch origin "$base_ref"
+          fi
 
           has_worktree_changes=false
           if [ -n "$(git status --porcelain)" ]; then
@@ -171,27 +242,33 @@ jobs:
           echo "has_worktree_changes=$has_worktree_changes" >> "$GITHUB_OUTPUT"
           echo "has_ahead_commits=$has_ahead_commits" >> "$GITHUB_OUTPUT"
           echo "ahead_count=$ahead_count" >> "$GITHUB_OUTPUT"
-
-          echo "has_worktree_changes=$has_worktree_changes"
-          echo "has_ahead_commits=$has_ahead_commits"
-          echo "ahead_count=$ahead_count"
+          echo "base_ref=$base_ref" >> "$GITHUB_OUTPUT"
 
       - name: Commit, push, and open pull request
         id: create_pr
         if: steps.detect_changes.outputs.has_changes == 'true'
         uses: peter-evans/create-pull-request@v8
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          base: ${{ github.ref_name }}
-          branch: codex/spec-implement-${{ github.run_id }}
+          token: ${{ secrets.CROSS_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          base: ${{ steps.detect_changes.outputs.base_ref }}
+          branch: codex/spec-kit-${{ github.run_id }}
           delete-branch: true
-          commit-message: "feat: apply Codex Spec Implement updates"
-          title: "Codex Spec Implement updates (run ${{ github.run_id }})"
+          commit-message: ${{ steps.run_codex.outputs.commit_message }}
+          title: ${{ steps.run_codex.outputs.pr_title }}
           body: |
-            Automated changes from Codex Spec Implement workflow.
+            Automated changes from Codex Spec Kit workflow.
+
+            Issue:
+            #${{ steps.run_codex.outputs.issue_number }}
+
+            Source Status:
+            `${{ steps.run_codex.outputs.source_status }}`
+
+            Target Repo:
+            `${{ steps.run_codex.outputs.target_repo }}`
 
             Prompt:
-            `${{ inputs.prompt || github.event.inputs.prompt || '/prompts.speckit.implement 004 do not ask question and decide yourself session should be non-interactive and commands are allowed' }}`
+            `${{ inputs.prompt || github.event.inputs.prompt || '$speckit.specify Example feature request from workflow dispatch' }}`
 
       - name: Print PR result
         env:
@@ -200,7 +277,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ steps.detect_changes.outputs.has_changes }}" != "true" ]; then
-            echo "No pull request created because working tree changes were '${{ steps.detect_changes.outputs.has_worktree_changes }}' and ahead commits were '${{ steps.detect_changes.outputs.has_ahead_commits }}' (ahead_count=${{ steps.detect_changes.outputs.ahead_count }})."
+            echo "No pull request created because the Codex Spec Kit run did not produce repository changes."
             if [ -n "$CODEX_FINAL_FEEDBACK" ]; then
               echo "Codex final feedback: $CODEX_FINAL_FEEDBACK"
             fi

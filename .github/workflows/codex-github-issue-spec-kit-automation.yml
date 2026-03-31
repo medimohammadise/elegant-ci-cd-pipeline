@@ -1,0 +1,565 @@
+name: Issue Codex Spec Automation
+
+on:
+  workflow_call:
+    inputs:
+      issue_number:
+        description: Issue number to process for reusable workflow callers
+        required: false
+        type: string
+      target_repo:
+        description: Optional target repository in owner/repo format for downstream PR creation
+        required: false
+        type: string
+    outputs:
+      status:
+        description: Final issue automation status
+        value: ${{ jobs.report.outputs.status }}
+      message:
+        description: Final issue automation message
+        value: ${{ jobs.report.outputs.message }}
+      prompt_ref:
+        description: Prompt reference generated for eligible issue handoff
+        value: ${{ jobs.report.outputs.prompt_ref }}
+      downstream_workflow:
+        description: Reusable workflow called for Spec Kit handoff
+        value: ${{ jobs.report.outputs.downstream_workflow }}
+
+  issues:
+    types:
+      - opened
+      - edited
+      - milestoned
+  repository_dispatch:
+    types:
+      - project_status_change
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Issue number to process for manual validation
+        required: true
+        type: string
+      target_repo:
+        description: Optional target repository in owner/repo format for downstream PR creation
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: issue-spec-automation-${{ github.event.issue.number || github.event.client_payload.issue_number || github.event.client_payload.issue.number || github.event.inputs.issue_number || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  evaluate:
+    name: Evaluate issue for Spec Kit handoff
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ steps.evaluate.outputs.status }}
+      message: ${{ steps.evaluate.outputs.message }}
+      prompt_ref: ${{ steps.evaluate.outputs.prompt_ref }}
+      prompt: ${{ steps.evaluate.outputs.prompt }}
+      issue_number: ${{ steps.evaluate.outputs.issue_number }}
+      caller_status: ${{ steps.evaluate.outputs.caller_status }}
+      target_repo: ${{ steps.evaluate.outputs.target_repo }}
+
+    steps:
+      - name: Evaluate issue body and build prompt
+        id: evaluate
+        uses: actions/github-script@v8
+        env:
+          DISPATCH_ISSUE_NUMBER: ${{ inputs.issue_number || github.event.inputs.issue_number || github.event.client_payload.issue_number || github.event.client_payload.issue.number || '' }}
+          DISPATCH_PROJECT_STATUS: ${{ github.event.client_payload.project_status || github.event.client_payload.status || github.event.client_payload.field_value || github.event.client_payload.to_status || '' }}
+          DISPATCH_TARGET_REPO: ${{ inputs.target_repo || github.event.inputs.target_repo || github.event.client_payload.target_repo || github.event.client_payload.repository || '' }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const DEFAULT_COMMAND = "$speckit.specify";
+            const trackedProjectStatuses = new Set(["backlog", "ready", "in progress", "in review", "done"]);
+            const projectStatusCommandMap = {
+              backlog: "$speckit.plan",
+              ready: "$speckit.task",
+              "in progress": "$speckit.implement",
+              "in review": "$speckit.analyse",
+            };
+            const handoffMarkerPrefix = "<!-- issue-spec-automation:issue=";
+
+            function preview(text, limit = 240) {
+              if (!text) return "";
+              return text.length > limit ? `${text.slice(0, limit)}...` : text;
+            }
+
+            function normalizeBody(body) {
+              return String(body || "")
+                .replace(/\r/g, "")
+                .replace(/[ \t]+\n/g, "\n")
+                .trim();
+            }
+
+            function normalizeProjectStatus(value) {
+              return String(value || "")
+                .trim()
+                .toLowerCase()
+                .replace(/[_-]+/g, " ")
+                .replace(/\s+/g, " ");
+            }
+
+            function resolveDispatchInputs() {
+              const issueNumber = Number(process.env.DISPATCH_ISSUE_NUMBER || "");
+              const rawProjectStatus = String(process.env.DISPATCH_PROJECT_STATUS || "");
+              const normalizedProjectStatus = normalizeProjectStatus(rawProjectStatus);
+              const rawTargetRepo = String(process.env.DISPATCH_TARGET_REPO || "").trim();
+              return {
+                issueNumber,
+                rawProjectStatus,
+                normalizedProjectStatus,
+                rawTargetRepo,
+              };
+            }
+
+            function resolveTargetRepo(rawTargetRepo) {
+              if (rawTargetRepo) {
+                return rawTargetRepo;
+              }
+              return `${owner}/${repo}`;
+            }
+
+            function validateTargetRepo(targetRepo) {
+              const repoPattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+              if (!repoPattern.test(targetRepo)) {
+                return {
+                  ok: false,
+                  message: `Target repository '${targetRepo}' is invalid. Expected owner/repo format.`,
+                };
+              }
+
+              return { ok: true, message: "" };
+            }
+
+            function validateDispatchStatus(eventName, rawProjectStatus, normalizedProjectStatus) {
+              if (eventName !== "repository_dispatch") {
+                return { ok: true, message: "" };
+              }
+
+              if (!normalizedProjectStatus) {
+                return {
+                  ok: false,
+                  message:
+                    "repository_dispatch payload must include one of project_status, status, field_value, or to_status.",
+                };
+              }
+
+              if (!trackedProjectStatuses.has(normalizedProjectStatus)) {
+                return {
+                  ok: false,
+                  message: `repository_dispatch project status '${rawProjectStatus}' is not tracked.`,
+                };
+              }
+
+              return { ok: true, message: "" };
+            }
+
+            function resolveCommandPrefix(eventName, normalizedProjectStatus) {
+              if (eventName !== "repository_dispatch") {
+                return DEFAULT_COMMAND;
+              }
+
+              return projectStatusCommandMap[normalizedProjectStatus] || "";
+            }
+
+            function resolveCallerStatus(eventName, eventAction, rawProjectStatus) {
+              if (eventName === "repository_dispatch") {
+                return String(rawProjectStatus || "").trim();
+              }
+
+              if (eventName === "issues") {
+                const issueEventStatusMap = {
+                  opened: "created",
+                  edited: "updated",
+                  milestoned: "milestoned",
+                };
+                return issueEventStatusMap[eventAction] || "updated";
+              }
+
+              if (eventName === "workflow_dispatch") {
+                return "manual";
+              }
+
+              return eventName || "unknown";
+            }
+
+            async function loadIssue(eventName, issueNumber) {
+              if (eventName === "issues") {
+                return context.payload.issue;
+              }
+
+              if (!issueNumber) {
+                throw new Error(`${eventName} requires a numeric issue_number input`);
+              }
+
+              const response = await github.rest.issues.get({
+                owner,
+                repo,
+                issue_number: issueNumber,
+              });
+
+              return response.data;
+            }
+
+            function evaluateBodyEligibility(body) {
+              const normalized = normalizeBody(body);
+              const words = normalized.split(/\s+/).filter(Boolean);
+              const placeholderPatterns = [
+                /please describe/i,
+                /replace this/i,
+                /tbd/i,
+                /todo/i,
+                /\?\?\?/,
+                /<.*?>/,
+              ];
+              const placeholderMatches = placeholderPatterns
+                .filter((pattern) => pattern.test(normalized))
+                .map((pattern) => pattern.toString());
+
+              if (normalized.length < 80) {
+                return {
+                  eligible: false,
+                  normalizedLength: normalized.length,
+                  wordCount: words.length,
+                  placeholderMatches,
+                  reason: "Issue body does not contain enough feature detail to generate a reliable specification.",
+                };
+              }
+
+              if (words.length < 15) {
+                return {
+                  eligible: false,
+                  normalizedLength: normalized.length,
+                  wordCount: words.length,
+                  placeholderMatches,
+                  reason: "Issue body is too short to infer scope, behavior, and acceptance details.",
+                };
+              }
+
+              if (placeholderMatches.length > 0) {
+                return {
+                  eligible: false,
+                  normalizedLength: normalized.length,
+                  wordCount: words.length,
+                  placeholderMatches,
+                  reason: "Issue body appears to contain placeholder or unfinished template text instead of a complete feature request.",
+                };
+              }
+
+              return {
+                eligible: true,
+                normalizedLength: normalized.length,
+                wordCount: words.length,
+                placeholderMatches,
+                reason: "",
+              };
+            }
+
+            function logIssueContext(issue, normalizedBody, eligibility, rawProjectStatus, targetRepo) {
+              core.info(`Issue Spec Automation evaluate step started for issue #${issue.number}`);
+              core.info(`Event name: ${context.eventName}`);
+              core.info(`Event action: ${context.payload.action || "(none)"}`);
+              core.info(`Issue title: ${issue.title || "(empty title)"}`);
+              core.info(`Issue URL: ${issue.html_url || "(missing url)"}`);
+              core.info(`Issue body raw length: ${(issue.body || "").length}`);
+              core.info(`Issue body normalized length: ${eligibility.normalizedLength}`);
+              core.info(`Issue body word count: ${eligibility.wordCount}`);
+              core.info(`Issue body preview: ${preview(normalizedBody) || "(empty body)"}`);
+              if (context.eventName === "repository_dispatch") {
+                core.info(`repository_dispatch project status: ${rawProjectStatus || "(missing)"}`);
+              }
+              core.info(`Resolved target repository: ${targetRepo}`);
+              core.info(
+                `Placeholder pattern matches: ${
+                  eligibility.placeholderMatches.length > 0
+                    ? eligibility.placeholderMatches.join(", ")
+                    : "none"
+                }`
+              );
+            }
+
+            async function findExistingStartedComment(issueNumber) {
+              const existingComments = await github.paginate(github.rest.issues.listComments, {
+                owner,
+                repo,
+                issue_number: issueNumber,
+                per_page: 100,
+              });
+
+              core.info(`Existing issue comment count: ${existingComments.length}`);
+
+              return existingComments.find((comment) => {
+                if (!comment.body) return false;
+                return (
+                  comment.body.includes(`${handoffMarkerPrefix}${issueNumber};status=handoff_started;`)
+                );
+              });
+            }
+
+            function buildEvaluateOutcome({
+              issue,
+              normalizedBody,
+              eligibility,
+              dispatchValidation,
+              targetRepoValidation,
+              commandPrefix,
+              rawProjectStatus,
+              existingStartedComment,
+            }) {
+              if (existingStartedComment) {
+                core.warning(
+                  `Skipping issue #${issue.number} because an existing handoff marker was found in comment ${existingStartedComment.html_url}`
+                );
+                return {
+                  status: "skipped",
+                  message: `Issue already has a recorded Spec Kit handoff in comment ${existingStartedComment.html_url}.`,
+                  promptRef: "",
+                  prompt: "",
+                };
+              }
+
+              if (!dispatchValidation.ok) {
+                core.warning(
+                  `Skipping issue #${issue.number} due to repository dispatch validation failure: ${dispatchValidation.message}`
+                );
+                return {
+                  status: "skipped",
+                  message: dispatchValidation.message,
+                  promptRef: "",
+                  prompt: "",
+                };
+              }
+
+              if (!targetRepoValidation.ok) {
+                core.warning(
+                  `Skipping issue #${issue.number} due to target repository validation failure: ${targetRepoValidation.message}`
+                );
+                return {
+                  status: "skipped",
+                  message: targetRepoValidation.message,
+                  promptRef: "",
+                  prompt: "",
+                };
+              }
+
+              if (!commandPrefix) {
+                core.info(
+                  `Skipping issue #${issue.number} because project status '${rawProjectStatus}' does not map to a Speckit command.`
+                );
+                return {
+                  status: "skipped",
+                  message: `Project status '${rawProjectStatus}' does not require a Spec Kit command handoff.`,
+                  promptRef: "",
+                  prompt: "",
+                };
+              }
+
+              if (!eligibility.eligible) {
+                core.warning(`Skipping issue #${issue.number} due to eligibility failure: ${eligibility.reason}`);
+                return {
+                  status: "skipped",
+                  message: eligibility.reason,
+                  promptRef: "",
+                  prompt: "",
+                };
+              }
+
+              const promptRef = `issue-spec-${issue.number}-${context.runId}`;
+              const prompt = `${commandPrefix} ${normalizedBody}`;
+              core.info(`Issue #${issue.number} is eligible. Prompt ref: ${promptRef}`);
+              core.info(`Resolved command input: ${preview(prompt, 320)}`);
+              return {
+                status: "ready",
+                message: "Issue contained sufficient feature detail. Starting codex-spec-kit-agent.yml.",
+                promptRef,
+                prompt,
+              };
+            }
+
+            function publishOutputs(outcome, issueNumber, callerStatus, targetRepo) {
+              core.info(`Final evaluate status for issue #${issueNumber}: ${outcome.status}`);
+              core.info(`Final evaluate message: ${outcome.message}`);
+              core.info(`Caller status context: ${callerStatus || "(none)"}`);
+              core.info(`Target repository: ${targetRepo}`);
+
+              core.setOutput("status", outcome.status);
+              core.setOutput("message", outcome.message);
+              core.setOutput("prompt_ref", outcome.promptRef);
+              core.setOutput("prompt", outcome.prompt);
+              core.setOutput("issue_number", String(issueNumber));
+              core.setOutput("caller_status", callerStatus);
+              core.setOutput("target_repo", targetRepo);
+            }
+
+            const dispatchInputs = resolveDispatchInputs();
+            const issue = await loadIssue(context.eventName, dispatchInputs.issueNumber);
+            const normalizedBody = normalizeBody(issue.body || "");
+            const eligibility = evaluateBodyEligibility(issue.body || "");
+            const dispatchValidation = validateDispatchStatus(
+              context.eventName,
+              dispatchInputs.rawProjectStatus,
+              dispatchInputs.normalizedProjectStatus
+            );
+            const commandPrefix = resolveCommandPrefix(
+              context.eventName,
+              dispatchInputs.normalizedProjectStatus
+            );
+            const targetRepo = resolveTargetRepo(dispatchInputs.rawTargetRepo);
+            const targetRepoValidation = validateTargetRepo(targetRepo);
+            const callerStatus = resolveCallerStatus(
+              context.eventName,
+              context.payload.action || "",
+              dispatchInputs.rawProjectStatus
+            );
+
+            logIssueContext(
+              issue,
+              normalizedBody,
+              eligibility,
+              dispatchInputs.rawProjectStatus,
+              targetRepo
+            );
+
+            const existingStartedComment = await findExistingStartedComment(issue.number);
+            const outcome = buildEvaluateOutcome({
+              issue,
+              normalizedBody,
+              eligibility,
+              dispatchValidation,
+              targetRepoValidation,
+              commandPrefix,
+              rawProjectStatus: dispatchInputs.rawProjectStatus,
+              existingStartedComment,
+            });
+            publishOutputs(outcome, issue.number, callerStatus, targetRepo);
+
+  handoff:
+    name: Call Codex Spec Kit workflow
+    needs: evaluate
+    if: needs.evaluate.outputs.status == 'ready'
+    uses: ./.github/workflows/codex-spec-kit-agent.yml
+    secrets: inherit
+    with:
+      prompt: ${{ needs.evaluate.outputs.prompt }}
+      issue_number: ${{ needs.evaluate.outputs.issue_number }}
+      source_status: ${{ needs.evaluate.outputs.caller_status }}
+      # Downstream workflow must accept and use this input to create PRs in cross-repository subtasks.
+      target_repo: ${{ needs.evaluate.outputs.target_repo }}
+
+  report:
+    name: Record issue outcome
+    runs-on: ubuntu-latest
+    needs:
+      - evaluate
+      - handoff
+    if: always()
+    outputs:
+      status: ${{ steps.report.outputs.status }}
+      message: ${{ steps.report.outputs.message }}
+      prompt_ref: ${{ steps.report.outputs.prompt_ref }}
+      downstream_workflow: ${{ steps.report.outputs.downstream_workflow }}
+
+    steps:
+      - name: Publish visible issue outcome
+        id: report
+        uses: actions/github-script@v8
+        env:
+          DISPATCH_ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number || github.event.client_payload.issue_number || github.event.client_payload.issue.number || github.event.inputs.issue_number || '' }}
+          EVALUATE_STATUS: ${{ needs.evaluate.outputs.status }}
+          EVALUATE_MESSAGE: ${{ needs.evaluate.outputs.message }}
+          EVALUATE_PROMPT: ${{ needs.evaluate.outputs.prompt }}
+          EVALUATE_TARGET_REPO: ${{ needs.evaluate.outputs.target_repo }}
+          PROMPT_REF: ${{ needs.evaluate.outputs.prompt_ref }}
+          HANDOFF_RESULT: ${{ needs.handoff.result || 'skipped' }}
+          DOWNSTREAM_WORKFLOW: .github/workflows/codex-spec-kit-agent.yml
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issueNumber = Number(process.env.DISPATCH_ISSUE_NUMBER || "");
+
+            if (!issueNumber) {
+              throw new Error("Missing issue number for issue outcome reporting");
+            }
+
+            const evaluateStatus = process.env.EVALUATE_STATUS || "skipped";
+            const evaluateMessage = process.env.EVALUATE_MESSAGE || "";
+            const evaluatePrompt = process.env.EVALUATE_PROMPT || "";
+            const evaluateTargetRepo = process.env.EVALUATE_TARGET_REPO || "";
+            const promptRef = process.env.PROMPT_REF || "";
+            const downstreamWorkflow = process.env.DOWNSTREAM_WORKFLOW;
+            const handoffResult = process.env.HANDOFF_RESULT;
+            const defaultCommand = "$speckit.specify";
+
+            function commandPrefixFromPrompt(prompt) {
+              return (prompt.trim().match(/^\S+/) || [])[0] || defaultCommand;
+            }
+
+            function resolveReportStatus(status, result) {
+              if (status !== "ready") {
+                return status;
+              }
+              return result === "success" ? "handoff_started" : "failed";
+            }
+
+            function resolveReportMessage(status, result, currentMessage, commandPrefix) {
+              if (status !== "ready") {
+                return currentMessage;
+              }
+              if (result === "success") {
+                return `Started codex-spec-kit-agent.yml with ${commandPrefix} built from the issue body.`;
+              }
+              return `Failed to start codex-spec-kit-agent.yml (job result: ${result}).`;
+            }
+
+            const commandPrefix = commandPrefixFromPrompt(evaluatePrompt);
+            const status = resolveReportStatus(evaluateStatus, handoffResult);
+            const message = resolveReportMessage(evaluateStatus, handoffResult, evaluateMessage, commandPrefix);
+
+            if (evaluateStatus === "ready" && status === "failed") {
+              core.warning(`Downstream handoff failed for issue #${issueNumber} (job result: ${handoffResult}).`);
+            }
+
+            const lines = [];
+            if (status === "handoff_started") {
+              lines.push(`<!-- issue-spec-automation:issue=${issueNumber};status=${status};prompt_ref=${promptRef} -->`);
+            }
+            lines.push("## Issue Spec Automation");
+            lines.push("");
+            lines.push(`- Status: \`${status}\``);
+            lines.push(`- Message: ${message}`);
+            if (promptRef) {
+              lines.push(`- Prompt Ref: \`${promptRef}\``);
+            }
+            if (evaluateTargetRepo) {
+              lines.push(`- Target Repo: \`${evaluateTargetRepo}\``);
+            }
+            lines.push(`- Downstream Workflow: \`${downstreamWorkflow}\``);
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: issueNumber,
+              body: lines.join("\n"),
+            });
+
+            core.setOutput("status", status);
+            core.setOutput("message", message);
+            core.setOutput("prompt_ref", promptRef);
+            core.setOutput("downstream_workflow", downstreamWorkflow);
+
+      - name: Fail workflow if handoff failed
+        if: steps.report.outputs.status == 'failed'
+        shell: bash
+        run: |
+          echo "${{ steps.report.outputs.message }}"
+          exit 1
