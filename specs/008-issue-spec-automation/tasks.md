@@ -1,106 +1,107 @@
 # Tasks: Issue-Driven Spec Planning Workflow
 
 **Input**: Design documents from `/specs/008-issue-spec-automation/`
-**Prerequisites**: plan.md, spec.md, research.md, data-model.md
+**Prerequisites**: plan.md, spec.md, research.md, data-model.md, contracts/, quickstart.md
 
-**Tests**: Include workflow-focused contract and integration validation because automation correctness and duplicate prevention are core requirements.
+**Tests**: Include workflow-focused contract and integration validation because intake correctness, downstream handoff timing, and duplicate prevention are core requirements.
 
 **Organization**: Tasks are grouped by user story so each story can be implemented and validated independently.
 
 ## Phase 1: Setup (Shared Infrastructure)
 
-**Purpose**: Prepare workflow files and fixtures needed for issue-driven automation work.
+**Purpose**: Prepare the workflow files and validation documents shared across all stories.
 
-- [ ] T001 Create the workflow scaffold in `.github/workflows/issue-spec-automation.yml`
-- [ ] T002 Create reusable issue fixture files for workflow validation under `tests/contract/` and `tests/integration/`
-- [ ] T003 [P] Document the generated artifact conventions for this feature in `specs/008-issue-spec-automation/quickstart.md` if implementation details change
+- [X] T001 Create the intake workflow scaffold in `.github/workflows/issue-spec-automation.yml`
+- [X] T002 [P] Refresh trigger and intake contract coverage in `tests/contract/issue-spec-automation-trigger.md`
+- [X] T003 [P] Refresh trigger and intake integration coverage in `tests/integration/issue-spec-automation-trigger.md`
+- [X] T004 [P] Update manual validation steps for the issue-created handoff flow in `specs/008-issue-spec-automation/quickstart.md`
 
 ---
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
-**Purpose**: Establish shared issue parsing, duplicate detection, and artifact path resolution before user-story-specific behavior.
+**Purpose**: Establish the shared reusable-workflow contract, prompt structure, and outcome model before story-specific implementation.
 
-- [ ] T004 Define issue eligibility and missing-description handling in `.github/workflows/issue-spec-automation.yml`
-- [ ] T005 [P] Define duplicate-detection rules tied to the originating issue in `.github/workflows/issue-spec-automation.yml`
-- [ ] T006 [P] Define artifact metadata outputs for branch name, feature directory, and status reporting in `.github/workflows/issue-spec-automation.yml`
+- [X] T005 Define reusable workflow call expectations and outputs in `specs/008-issue-spec-automation/contracts/issue-spec-automation-workflow.md`
+- [X] T006 [P] Align the downstream workflow interface in `.github/workflows/codex-spec-kit-agent.yml`
+- [X] T007 [P] Define prompt reference, duplicate marker, and visible outcome fields in `.github/workflows/issue-spec-automation.yml`
 
-**Checkpoint**: Workflow can safely decide whether to create, skip, or fail before writing artifacts.
+**Checkpoint**: The intake workflow has a stable downstream-call contract and one shared outcome model for `handoff_started`, `skipped`, and `failed`.
 
 ---
 
 ## Phase 3: User Story 1 - Start feature definition from a new issue (Priority: P1) 🎯 MVP
 
-**Goal**: Trigger and validate the issue-created workflow so valid feature issues start a single planning run.
+**Goal**: A newly created eligible issue starts exactly one downstream planning handoff without manual intervention.
 
-**Independent Test**: Open a valid issue fixture and confirm one run starts; open an invalid issue fixture and confirm the workflow exits with a clear validation reason.
+**Independent Test**: Open a valid issue and confirm `.github/workflows/issue-spec-automation.yml` runs from the `issues` `opened` event, validates the issue, and calls `codex-spec-kit-agent.yml` exactly once with `$speckit.specify <issue body>`.
 
 ### Tests for User Story 1
 
-- [ ] T007 [P] [US1] Add contract coverage for issue-created trigger eligibility in `tests/contract/issue-spec-automation-trigger.md`
-- [ ] T008 [P] [US1] Add integration coverage for valid and invalid issue intake flows in `tests/integration/issue-spec-automation-trigger.md`
+- [X] T008 [P] [US1] Add eligible-issue and insufficient-detail scenarios to `tests/contract/issue-spec-automation-trigger.md`
+- [X] T009 [P] [US1] Add end-to-end issue-created scenarios to `tests/integration/issue-spec-automation-trigger.md`
 
 ### Implementation for User Story 1
 
-- [ ] T009 [US1] Configure issue-created event handling and required permissions in `.github/workflows/issue-spec-automation.yml`
-- [ ] T010 [US1] Implement issue description extraction and validation in `.github/workflows/issue-spec-automation.yml`
-- [ ] T011 [US1] Implement human-readable skip and failure reporting for invalid issue bodies in `.github/workflows/issue-spec-automation.yml`
+- [X] T010 [US1] Configure `issues` `opened` and manual `workflow_dispatch` entrypoints in `.github/workflows/issue-spec-automation.yml`
+- [X] T011 [US1] Implement issue metadata loading, body normalization, and eligibility validation in `.github/workflows/issue-spec-automation.yml`
+- [X] T012 [US1] Implement the post-validation `$speckit.specify <issue body>` handoff input in `.github/workflows/issue-spec-automation.yml`
+- [X] T013 [US1] Call `.github/workflows/codex-spec-kit-agent.yml` only after issue creation and intake checks succeed in `.github/workflows/issue-spec-automation.yml`
+- [X] T014 [US1] Record visible `handoff_started`, `skipped`, and `failed` issue comments in `.github/workflows/issue-spec-automation.yml`
 
-**Checkpoint**: New issues reliably start or stop the workflow with a clear decision.
+**Checkpoint**: Eligible issues reliably trigger one visible downstream planning handoff, and ineligible issues stop with a clear reason.
 
 ---
 
 ## Phase 4: User Story 2 - Generate spec, plan, and task artifacts from the issue description (Priority: P1)
 
-**Goal**: Produce a full feature artifact set from a valid issue.
+**Goal**: The downstream Spec Kit workflow receives the right command input and preserves enough context for maintainers to trace generated artifacts back to the issue.
 
-**Independent Test**: Process a valid issue and confirm the workflow creates a feature branch plus `spec.md`, `plan.md`, `tasks.md`, and the requirements checklist in the generated feature directory.
+**Independent Test**: Process a valid issue and confirm the downstream workflow receives `$speckit.specify <issue body>`, then produces planning artifacts whose lineage is traceable from the originating issue.
 
 ### Tests for User Story 2
 
-- [ ] T012 [P] [US2] Add contract coverage for issue-to-artifact traceability expectations in `tests/contract/issue-spec-artifacts.md`
-- [ ] T013 [P] [US2] Add integration coverage for full artifact generation in `tests/integration/issue-spec-artifacts.md`
+- [X] T015 [P] [US2] Add downstream handoff and artifact-traceability expectations to `tests/contract/issue-spec-artifacts.md`
+- [X] T016 [P] [US2] Add downstream artifact-generation and traceability scenarios to `tests/integration/issue-spec-artifacts.md`
 
 ### Implementation for User Story 2
 
-- [ ] T014 [US2] Invoke `.specify/scripts/bash/create-new-feature.sh` from `.github/workflows/issue-spec-automation.yml`
-- [ ] T015 [US2] Generate `spec.md` content from issue data in `.github/workflows/issue-spec-automation.yml`
-- [ ] T016 [US2] Invoke `.specify/scripts/bash/setup-plan.sh` and populate `plan.md` in `.github/workflows/issue-spec-automation.yml`
-- [ ] T017 [US2] Generate `tasks.md` and `checklists/requirements.md` in `.github/workflows/issue-spec-automation.yml`
-- [ ] T018 [US2] Record artifact references back to the originating issue in `.github/workflows/issue-spec-automation.yml`
+- [X] T017 [US2] Pass prompt input, originating issue context, and traceability fields through `.github/workflows/issue-spec-automation.yml`
+- [X] T018 [US2] Expose downstream prompt handling and caller-facing outputs in `.github/workflows/codex-spec-kit-agent.yml`
+- [X] T019 [US2] Ensure maintainer-visible handoff details include prompt reference and downstream workflow identification in `.github/workflows/issue-spec-automation.yml`
 
-**Checkpoint**: A valid issue produces one complete, traceable planning artifact set.
+**Checkpoint**: The downstream planning workflow receives the correct issue-body prompt and maintainers can trace resulting planning artifacts back to the issue.
 
 ---
 
 ## Phase 5: User Story 3 - Prevent duplicate or conflicting planning runs (Priority: P2)
 
-**Goal**: Ensure reruns and repeated processing for the same issue do not create conflicting artifacts.
+**Goal**: Repeated processing of the same issue never starts a second downstream handoff.
 
-**Independent Test**: Re-run the workflow for an already processed issue and confirm the result is a clean skip or reuse outcome with no duplicate branch or spec directory creation.
+**Independent Test**: Re-run the workflow for an already processed issue and confirm it skips cleanly, preserves the original handoff marker, and does not call the downstream workflow again.
 
 ### Tests for User Story 3
 
-- [ ] T019 [P] [US3] Add contract coverage for duplicate issue detection in `tests/contract/issue-spec-duplicates.md`
-- [ ] T020 [P] [US3] Add integration coverage for repeated issue processing in `tests/integration/issue-spec-duplicates.md`
+- [X] T020 [P] [US3] Add duplicate-handoff rules to `tests/contract/issue-spec-duplicates.md`
+- [X] T021 [P] [US3] Add repeated-run integration scenarios to `tests/integration/issue-spec-duplicates.md`
 
 ### Implementation for User Story 3
 
-- [ ] T021 [US3] Implement duplicate artifact detection before generation in `.github/workflows/issue-spec-automation.yml`
-- [ ] T022 [US3] Implement rerun-safe status reporting and skip behavior in `.github/workflows/issue-spec-automation.yml`
-- [ ] T023 [US3] Handle partial-generation recovery paths in `.github/workflows/issue-spec-automation.yml`
+- [X] T022 [US3] Add issue-number-based concurrency and duplicate marker detection to `.github/workflows/issue-spec-automation.yml`
+- [X] T023 [US3] Implement rerun-safe skip behavior and duplicate-specific messaging in `.github/workflows/issue-spec-automation.yml`
+- [X] T024 [US3] Handle downstream call failures without leaving a false success marker in `.github/workflows/issue-spec-automation.yml`
 
-**Checkpoint**: Repeated runs remain idempotent and understandable to maintainers.
+**Checkpoint**: Duplicate issue processing is safely skipped and concurrent unrelated issues remain independent.
 
 ---
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-**Purpose**: Improve maintainability and validate the complete workflow behavior.
+**Purpose**: Final validation and documentation updates that span all stories.
 
-- [ ] T024 [P] Add workflow usage notes to `docs/` or `README` if repository documentation exists for automation workflows
-- [ ] T025 Run end-to-end validation using the steps in `specs/008-issue-spec-automation/quickstart.md`
-- [ ] T026 Review generated messaging for clarity across success, skip, and failure outcomes
+- [X] T025 [P] Add the issue-spec intake workflow to repository workflow documentation in `CLAUDE.md`
+- [ ] T026 Run the full handoff validation flow in `specs/008-issue-spec-automation/quickstart.md`
+- [X] T027 Review workflow messages for clarity across handoff-started, skipped, and failed outcomes in `.github/workflows/issue-spec-automation.yml`
 
 ---
 
@@ -110,29 +111,55 @@
 
 - Setup can start immediately.
 - Foundational work blocks all user stories.
-- User Stories 1 and 2 should be completed in order because artifact generation depends on valid intake handling.
-- User Story 3 depends on the artifact-generation flow from User Story 2.
+- User Story 1 depends on the Foundational phase.
+- User Story 2 depends on User Story 1 because artifact traceability builds on a working intake handoff.
+- User Story 3 depends on User Story 1 because duplicate protection wraps the working handoff path.
 - Polish follows all completed user stories.
+
+### User Story Dependencies
+
+- User Story 1 (P1) is the MVP and must land first.
+- User Story 2 (P1) extends User Story 1 with traceable downstream artifact generation.
+- User Story 3 (P2) can begin after User Story 1 and run in parallel with late User Story 2 validation once the core handoff path is stable.
+
+### Within Each User Story
+
+- Update story-specific contract and integration docs before or alongside implementation.
+- Intake validation and prompt construction must exist before the downstream workflow call is wired.
+- Duplicate handling must build on the final visible outcome format.
 
 ### Parallel Opportunities
 
-- T002 and T003 can run in parallel after T001.
-- T005 and T006 can run in parallel after T004.
-- Test-writing tasks within each story marked `[P]` can run in parallel.
-- Documentation cleanup and message review can run in parallel during Phase 6.
+- T002, T003, and T004 can run in parallel.
+- T006 and T007 can run in parallel after T005.
+- T008 and T009 can run in parallel.
+- T015 and T016 can run in parallel.
+- T020 and T021 can run in parallel.
+- T025 and T026 can run in parallel during the final polish phase.
+
+---
+
+## Parallel Example: User Story 1
+
+```bash
+# After the foundational handoff contract is defined, these validation tasks can run in parallel:
+Task T008: "Add eligible-issue and insufficient-detail scenarios to tests/contract/issue-spec-automation-trigger.md"
+Task T009: "Add end-to-end issue-created scenarios to tests/integration/issue-spec-automation-trigger.md"
+```
+
+---
 
 ## Implementation Strategy
 
 ### MVP First
 
-1. Complete Setup and Foundational phases.
-2. Deliver User Story 1 to validate issue intake.
-3. Deliver User Story 2 to create the full artifact set.
-4. Validate the generated branch and planning documents against the quickstart.
+1. Complete Phase 1: Setup.
+2. Complete Phase 2: Foundational.
+3. Complete Phase 3: User Story 1.
+4. Validate the issue-created handoff path before extending artifact traceability and duplicate protection.
 
 ### Incremental Delivery
 
-1. Establish deterministic workflow triggering and validation.
-2. Add artifact generation and issue traceability.
-3. Add duplicate prevention and recovery behavior.
-4. Finish with documentation and end-to-end validation.
+1. Deliver the intake workflow and reusable-workflow call.
+2. Add downstream traceability and artifact-facing visibility.
+3. Add duplicate protection and polish the maintainer-facing experience.

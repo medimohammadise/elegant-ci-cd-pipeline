@@ -42,11 +42,12 @@ All workflows expose a `workflow_call` interface with explicit inputs, outputs, 
 | `backend-gradle-test.yml` | Run Gradle unit + integration tests with PostgreSQL service container |
 | `cleanup-github-workflows.yml` | Delete failed/old workflow runs |
 | `cleanup-release-tags.yml` | Delete stale releases+paired tags, then orphaned tags (tags with no release) |
-| `codex-spec-implementation-agent.yml` | Run Codex CLI on self-hosted runner to implement specs and open PRs |
+| `codex-spec-kit-agent.yml` | Run Codex CLI on the self-hosted runner with a Spec Kit prompt and open a PR |
+| `issue-spec-automation.yml` | Validate new issues and hand them off to `codex-spec-kit-agent.yml` using `$speckit.specify <issue body>` |
 | `ci-action-version-drift.yml` | Validate all workflow `uses:` versions match `.github/actions-versions.yml` on PRs touching `.github/**` |
 
 ### Spec Kit (`specs/` and `.specify/`)
-Features are tracked in `specs/NNN-feature-name/` with spec, plan, tasks, and checklist files. `.specify/templates/` holds the Markdown templates for each artifact type. `.specify/scripts/bash/` contains helpers to scaffold new features. The `codex-spec-implementation-agent.yml` workflow drives automated implementation via Codex CLI.
+Features are tracked in `specs/NNN-feature-name/` with spec, plan, tasks, and checklist files. `.specify/templates/` holds the Markdown templates for each artifact type. `.specify/scripts/bash/` contains helpers to scaffold new features. The `codex-spec-kit-agent.yml` workflow drives automated Spec Kit work via Codex CLI.
 
 ### Tests
 - `tests/contract/` — Documents expected workflow interfaces (inputs, outputs, permissions)

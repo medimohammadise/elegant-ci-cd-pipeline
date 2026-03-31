@@ -1,29 +1,29 @@
 # Implementation Plan: Issue-Driven Spec Planning Workflow
 
-**Branch**: `[008-issue-spec-automation]` | **Date**: 2026-03-22 | **Spec**: [spec.md](./spec.md)
+**Branch**: `[008-issue-spec-automation]` | **Date**: 2026-03-31 | **Spec**: [/Users/mehdi/MyProject/elegant-ci-cd-pipeline/specs/008-issue-spec-automation/spec.md](/Users/mehdi/MyProject/elegant-ci-cd-pipeline/specs/008-issue-spec-automation/spec.md)
 **Input**: Feature specification from `/specs/008-issue-spec-automation/spec.md`
 
 ## Summary
 
-Add a GitHub Actions workflow that reacts to issue creation, validates the issue body as a feature request, generates a Spec Kit feature branch plus specification, and then produces the corresponding plan and task artifacts while preserving traceability back to the originating issue and preventing duplicate runs for the same issue.
+Add an issue-intake GitHub Actions workflow that runs after a new issue is created, validates the issue body, prevents duplicate handoffs, and then calls `.github/workflows/codex-spec-kit-agent.yml` exactly once for eligible issues using the command `$speckit.specify <issue body>`. The intake workflow reports a visible issue outcome, while branch creation and Spec Kit artifact generation remain the responsibility of the downstream reusable workflow.
 
 ## Technical Context
 
-**Language/Version**: YAML-based GitHub Actions workflows with shell scripting  
-**Primary Dependencies**: GitHub Actions runner tooling, repository-local Spec Kit bash scripts, GitHub CLI or GitHub API access through workflow credentials  
-**Storage**: Git repository branches and `specs/` documentation files  
-**Testing**: Workflow validation plus contract-style and integration-style repository tests  
-**Target Platform**: GitHub-hosted Linux runners  
-**Project Type**: Repository automation workflow  
-**Performance Goals**: Generate or skip artifact sets for single-issue runs within one workflow execution and keep concurrent issue processing isolated  
-**Constraints**: Must work with existing Spec Kit scripts, must avoid duplicate branch/spec creation for the same issue, must leave a visible run outcome for maintainers  
-**Scale/Scope**: Single repository automation supporting repeated issue-triggered feature generation over time
+**Language/Version**: YAML-based GitHub Actions workflows with inline JavaScript via `actions/github-script@v7` and shell validation scripts
+**Primary Dependencies**: GitHub Actions reusable workflows, `actions/github-script@v7`, Codex CLI runner integration, Spec Kit bash helpers
+**Storage**: GitHub issues/comments, workflow inputs/outputs, repository files under `specs/` and `tests/`
+**Testing**: Contract and integration workflow documentation under `tests/contract/` and `tests/integration/`, plus YAML parsing and manual workflow validation
+**Target Platform**: GitHub Actions on this repository with a reusable downstream workflow and self-hosted Codex runner
+**Project Type**: Reusable workflow automation repository
+**Performance Goals**: Produce a definitive intake outcome within a single workflow run and start the downstream handoff without manual intervention for eligible issues
+**Constraints**: The intake workflow must not create branches directly, must call `codex-spec-kit-agent.yml` only after issue creation and intake checks succeed, and must avoid duplicate handoffs per issue
+**Scale/Scope**: Repository-level automation for multiple independent issue-created runs, one primary handoff per issue
 
 ## Constitution Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-The repository constitution file is still an unfilled template, so there are no actionable governance gates to enforce for this feature. No constitution violations identified.
+The constitution file at `.specify/memory/constitution.md` is still a placeholder template, so no substantive project principles can be enforced yet. Current gate result: provisionally pass with documentation-only review, with the known governance gap recorded for future cleanup.
 
 ## Project Structure
 
@@ -35,8 +35,8 @@ specs/008-issue-spec-automation/
 ├── research.md
 ├── data-model.md
 ├── quickstart.md
-├── checklists/
-│   └── requirements.md
+├── contracts/
+│   └── issue-spec-automation-workflow.md
 └── tasks.md
 ```
 
@@ -45,56 +45,64 @@ specs/008-issue-spec-automation/
 ```text
 .github/
 └── workflows/
-    ├── reusable-release-notes.yml
+    ├── codex-spec-kit-agent.yml
     └── issue-spec-automation.yml
-
-.specify/
-└── scripts/
-    └── bash/
-        ├── create-new-feature.sh
-        ├── setup-plan.sh
-        └── check-prerequisites.sh
 
 specs/
 └── 008-issue-spec-automation/
+    ├── contracts/
+    ├── data-model.md
+    ├── plan.md
+    ├── quickstart.md
+    ├── research.md
+    ├── spec.md
+    └── tasks.md
 
 tests/
 ├── contract/
+│   ├── issue-spec-artifacts.md
+│   ├── issue-spec-automation-trigger.md
+│   └── issue-spec-duplicates.md
 └── integration/
+    ├── issue-spec-artifacts.md
+    ├── issue-spec-automation-trigger.md
+    └── issue-spec-duplicates.md
 ```
 
-**Structure Decision**: Keep the implementation in the existing single-repository workflow layout. Add one issue-triggered workflow under `.github/workflows/`, reuse the existing Spec Kit scripts under `.specify/scripts/bash/`, and keep validation collateral under `tests/`.
+**Structure Decision**: Keep implementation within the existing workflow-centric repository layout. Workflow behavior lives under `.github/workflows/`, while planning contracts and validation guidance remain under `specs/008-issue-spec-automation/` and `tests/`.
 
-## Phase 0 Research
+## Phase 0: Research
 
-- Determine the most reliable issue event trigger and permissions model for creating branches and pushing generated docs.
-- Compare duplicate-detection approaches: issue labels/comments, branch naming conventions, and spec-directory inspection.
-- Decide how the workflow should surface outcomes back to maintainers, including success, skip, and failure messages.
+Completed in [/Users/mehdi/MyProject/elegant-ci-cd-pipeline/specs/008-issue-spec-automation/research.md](/Users/mehdi/MyProject/elegant-ci-cd-pipeline/specs/008-issue-spec-automation/research.md).
 
-## Phase 1 Design
+Key decisions:
+- Use the `issues` `opened` event as the primary intake trigger.
+- Call `.github/workflows/codex-spec-kit-agent.yml` directly instead of using `repository_dispatch` or inline branch creation.
+- Build the downstream command input as `$speckit.specify <normalized issue body>`.
+- Use issue-level durable markers for idempotency and visible issue comments for operator-facing status.
 
-### Data Model
+## Phase 1: Design & Contracts
 
-- Issue Intake Record
-- Feature Artifact Set
-- Run Outcome
+Artifacts:
+- Data model: [/Users/mehdi/MyProject/elegant-ci-cd-pipeline/specs/008-issue-spec-automation/data-model.md](/Users/mehdi/MyProject/elegant-ci-cd-pipeline/specs/008-issue-spec-automation/data-model.md)
+- Workflow contract: [/Users/mehdi/MyProject/elegant-ci-cd-pipeline/specs/008-issue-spec-automation/contracts/issue-spec-automation-workflow.md](/Users/mehdi/MyProject/elegant-ci-cd-pipeline/specs/008-issue-spec-automation/contracts/issue-spec-automation-workflow.md)
+- Manual validation: [/Users/mehdi/MyProject/elegant-ci-cd-pipeline/specs/008-issue-spec-automation/quickstart.md](/Users/mehdi/MyProject/elegant-ci-cd-pipeline/specs/008-issue-spec-automation/quickstart.md)
 
-### Flow
+Design focus:
+- Intake evaluation loads issue metadata, normalizes the body, and determines eligibility.
+- Duplicate prevention is keyed by issue identity and prior successful handoff marker.
+- The reusable workflow call happens only after the issue exists and the intake checks pass.
+- The handoff contract uses the exact command input `$speckit.specify <issue body>`.
+- Visible issue comments communicate `handoff_started`, `skipped`, or `failed` without requiring Actions log inspection.
+- Downstream artifact generation, including branch creation, remains outside the intake workflow.
 
-1. Listen for issue creation.
-2. Read issue metadata and normalize the description text.
-3. Validate that the issue contains sufficient feature detail.
-4. Check whether the issue already has linked artifacts.
-5. Create the feature branch and initial spec via the existing Spec Kit script.
-6. Generate plan and tasks documents into the created feature directory.
-7. Record the outcome back to the issue or workflow summary.
+## Phase 2: Implementation Preview
 
-### Validation Strategy
-
-- Contract tests for issue-to-artifact mapping rules and duplicate detection behavior.
-- Integration tests for end-to-end execution against fixture issue payloads and generated spec directories.
-- Manual dry run using a sample issue in a test repository or controlled branch.
+Expected implementation slices:
+1. Update `.github/workflows/issue-spec-automation.yml` for trigger handling, eligibility checks, duplicate prevention, reusable-workflow handoff, and issue reporting.
+2. Align `.github/workflows/codex-spec-kit-agent.yml` with caller inputs and outputs needed for the intake workflow.
+3. Refresh contract, integration, and quickstart documentation to reflect direct reusable-workflow invocation and the `$speckit.specify <issue body>` handoff contract.
 
 ## Complexity Tracking
 
-No constitution exceptions or additional complexity justifications are required at this stage.
+No constitution-driven complexity exceptions are currently identified.
